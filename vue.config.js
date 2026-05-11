@@ -1,9 +1,7 @@
 const path = require('path')
-// Vue CLI v5 ships with webpack v5 nested under @vue/cli-service.
-// If the project root also has a different webpack version installed/hoisted,
-// requiring "webpack" here may pull in the wrong major version and break hooks.
-// Always bind to Vue CLI's webpack to keep plugin APIs consistent.
-const webpack = require('@vue/cli-service/node_modules/webpack')
+// project package.json now declares webpack ^5 at the root, matching what
+// @vue/cli-service v5 expects, so the hoisted top-level webpack is correct.
+const webpack = require('webpack')
 const packageJson = require('./package.json')
 const GitRevisionPlugin = require('git-revision-webpack-plugin')
 const GitRevision = new GitRevisionPlugin()
