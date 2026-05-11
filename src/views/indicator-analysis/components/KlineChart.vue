@@ -38,6 +38,39 @@
           >
             {{ indicator.shortName }}
           </div>
+          <a-divider type="vertical" style="margin: 0 4px" />
+          <div class="smc-btn-group">
+            <div
+              class="indicator-btn smc-master-btn"
+              :class="{ active: smcEnabled, loading: smcLoading }"
+              title="Smart Money Concepts - master toggle"
+              @click="handleSmcToggle"
+            >
+              <a-icon v-if="smcLoading" type="loading" />
+              <span v-else>SMC</span>
+            </div>
+            <a-popover trigger="click" placement="bottomRight">
+              <template slot="content">
+                <div class="smc-options-panel">
+                  <div
+                    v-for="opt in smcCategoryOptions"
+                    :key="opt.key"
+                    class="smc-option-row"
+                  >
+                    <span class="smc-option-label">{{ opt.label }}</span>
+                    <a-switch
+                      :checked="smcVisible[opt.key]"
+                      size="small"
+                      @change="(checked) => handleSmcCategoryToggle(opt.key, checked)"
+                    />
+                  </div>
+                </div>
+              </template>
+              <div class="indicator-btn smc-caret-btn" title="SMC components">
+                <a-icon type="caret-down" style="font-size: 9px" />
+              </div>
+            </a-popover>
+          </div>
         </div>
         <div v-if="activePresetIndicators.length" class="indicator-active-bar">
           <div
@@ -170,6 +203,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, shallowRef, getCurrentInstance } from 'vue'
 import { init, registerIndicator, registerOverlay } from 'klinecharts'
 import request from '@/utils/request'
+import notification from 'ant-design-vue/es/notification'
 import { decryptCodeAuto, needsDecrypt } from '@/utils/codeDecrypt'
 import ExchangeKlineWs from '@/utils/exchangeWs'
 
@@ -785,6 +819,169 @@ export default {
         closeIndicatorEditor()
       }
     }
+
+    // ========== SMC (Smart Money Concepts) toggle state ==========
+    const smcEnabled = ref(false)
+    const smcLoading = ref(false)
+    const smcVisible = reactive({
+      fvg: true, ob: true, bos: true, swings: true, liquidity: true
+    })
+    const smcCategoryOptions = [
+      { key: 'fvg', label: 'FVG' },
+      { key: 'ob', label: 'Order Block' },
+      { key: 'bos', label: 'BOS / CHoCH' },
+      { key: 'swings', label: 'Swing Points' },
+      { key: 'liquidity', label: 'Liquidity' }
+    ]
+    const smcData = shallowRef(null)
+    const smcOverlayIdsByKey = shallowRef({
+      fvg: [], ob: [], bos: [], swings: [], liquidity: []
+    })
+
+    const _smcRemoveOverlay = (id) => {
+      if (!chartRef.value) return
+      try {
+        if (typeof chartRef.value.removeOverlay === 'function') {
+          chartRef.value.removeOverlay(id)
+        } else if (typeof chartRef.value.removeOverlayById === 'function') {
+          chartRef.value.removeOverlayById(id)
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    const removeSmcCategory = (key) => {
+      const current = smcOverlayIdsByKey.value[key] || []
+      current.forEach(_smcRemoveOverlay)
+      smcOverlayIdsByKey.value = { ...smcOverlayIdsByKey.value, [key]: [] }
+    }
+
+    const clearAllSmcOverlays = () => {
+      Object.keys(smcOverlayIdsByKey.value).forEach(removeSmcCategory)
+    }
+
+    const drawSmcCategory = (key) => {
+      if (!chartRef.value || !smcData.value) return
+      removeSmcCategory(key)
+      const data = smcData.value
+      const ms = (s) => Number(s) * 1000
+      const ids = []
+      const push = (cfg) => {
+        const id = chartRef.value.createOverlay(cfg)
+        if (id) ids.push(id)
+      }
+      if (key === 'fvg') {
+        (data.fvgs || []).forEach(f => push({
+          name: 'smcFvgBox',
+          points: [
+            { timestamp: ms(f.start_time), value: f.top },
+            { timestamp: ms(f.end_time), value: f.bottom }
+          ],
+          extendData: { direction: f.type, mitigated: f.mitigated }
+        }))
+      } else if (key === 'ob') {
+        (data.order_blocks || []).forEach(o => push({
+          name: 'smcOrderBlock',
+          points: [
+            { timestamp: ms(o.start_time), value: o.top },
+            { timestamp: ms(o.end_time), value: o.bottom }
+          ],
+          extendData: { direction: o.type, percentage: o.percentage, volume: o.volume }
+        }))
+      } else if (key === 'bos') {
+        (data.bos || []).forEach(b => push({
+          name: 'smcBosLine',
+          points: [
+            { timestamp: ms(b.start_time), value: b.level },
+            { timestamp: ms(b.break_time), value: b.level }
+          ],
+          extendData: { kind: b.kind, direction: b.direction }
+        }))
+      } else if (key === 'swings') {
+        (data.swings || []).forEach(s => push({
+          name: 'smcSwingPoint',
+          points: [{ timestamp: ms(s.time), value: s.price }],
+          extendData: { type: s.type }
+        }))
+      } else if (key === 'liquidity') {
+        (data.liquidity || []).forEach(l => push({
+          name: 'smcLiquidityLine',
+          points: [
+            { timestamp: ms(l.start_time), value: l.level },
+            { timestamp: ms(l.end_time), value: l.level }
+          ],
+          extendData: { side: l.side, swept: l.swept }
+        }))
+      }
+      smcOverlayIdsByKey.value = { ...smcOverlayIdsByKey.value, [key]: ids }
+    }
+
+    const loadSmcOverlays = async () => {
+      if (!chartRef.value) return
+      if (!props.symbol || !props.market) return
+      smcLoading.value = true
+      try {
+        const response = await request({
+          url: '/api/smc/analyze',
+          method: 'get',
+          params: {
+            market: props.market,
+            symbol: props.symbol,
+            timeframe: props.timeframe,
+            limit: 500
+          }
+        })
+        if (response.code !== 1 || !response.data) {
+          throw new Error(response.msg || 'SMC analyze failed')
+        }
+        smcData.value = response.data
+        clearAllSmcOverlays()
+        Object.keys(smcVisible).forEach(k => {
+          if (smcVisible[k]) drawSmcCategory(k)
+        })
+      } catch (err) {
+        console.warn('[SMC] load failed:', err)
+        smcEnabled.value = false
+        notification.error({
+          message: 'SMC analysis failed',
+          description: err.message || 'Could not fetch SMC overlays.'
+        })
+      } finally {
+        smcLoading.value = false
+      }
+    }
+
+    const handleSmcToggle = async () => {
+      if (smcLoading.value) return
+      if (smcEnabled.value) {
+        clearAllSmcOverlays()
+        smcEnabled.value = false
+      } else {
+        smcEnabled.value = true
+        await loadSmcOverlays()
+      }
+    }
+
+    const handleSmcCategoryToggle = (key, checked) => {
+      smcVisible[key] = !!checked
+      // Preference persists even when master is off; only redraw when on.
+      if (!smcEnabled.value) return
+      if (checked) {
+        if (smcData.value) drawSmcCategory(key)
+        else loadSmcOverlays()
+      } else {
+        removeSmcCategory(key)
+      }
+    }
+
+    // Auto-clear SMC when chart context changes; user re-toggles to refetch.
+    watch(() => `${props.market}|${props.symbol}|${props.timeframe}`, () => {
+      const hasOverlays = Object.values(smcOverlayIdsByKey.value).some(arr => arr.length)
+      if (smcEnabled.value || hasOverlays) {
+        clearAllSmcOverlays()
+        smcEnabled.value = false
+        smcData.value = null
+      }
+    })
 
     const toggleIndicatorVisibility = (indicator) => {
       if (!indicator || !indicator.id) return
@@ -2061,6 +2258,161 @@ registerOverlay({
             },
             ignoreEvent: false
           }
+        ]
+      }
+    })
+
+    // ========== SMC overlays (FVG / OrderBlock / BOS / Swing) ==========
+    // Each overlay is registered once at setup; instances are created per
+    // SMC toggle by calling chartRef.value.createOverlay(...) with extendData.
+    // Backend returns unix-second timestamps; createOverlay needs ms (× 1000).
+
+    registerOverlay({
+      name: 'smcFvgBox',
+      totalStep: 2,
+      lock: true,
+      needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false,
+      needDefaultYAxisFigure: false,
+      checkEventOn: () => false,
+      createPointFigures: ({ coordinates, overlay }) => {
+        if (!coordinates[0] || !coordinates[1]) return []
+        const isBull = overlay.extendData?.direction === 'bullish'
+        const fillColor = isBull ? 'rgba(0, 230, 118, 0.10)' : 'rgba(255, 82, 82, 0.10)'
+        const borderColor = isBull ? 'rgba(0, 230, 118, 0.55)' : 'rgba(255, 82, 82, 0.55)'
+        const x1 = Math.min(coordinates[0].x, coordinates[1].x)
+        const x2 = Math.max(coordinates[0].x, coordinates[1].x)
+        const y1 = Math.min(coordinates[0].y, coordinates[1].y)
+        const y2 = Math.max(coordinates[0].y, coordinates[1].y)
+        return [
+          { type: 'rect',
+            attrs: { x: x1, y: y1, width: Math.max(2, x2 - x1), height: Math.max(2, y2 - y1) },
+            styles: { style: 'stroke_fill', color: fillColor, borderColor, borderSize: 1 },
+            ignoreEvent: true },
+          { type: 'text',
+            attrs: { x: x2 - 4, y: y1 + 2, text: 'FVG', align: 'right', baseline: 'top' },
+            styles: { color: borderColor, size: 10, weight: 'bold' },
+            ignoreEvent: true }
+        ]
+      }
+    })
+
+    registerOverlay({
+      name: 'smcOrderBlock',
+      totalStep: 2,
+      lock: true,
+      needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false,
+      needDefaultYAxisFigure: false,
+      checkEventOn: () => false,
+      createPointFigures: ({ coordinates, overlay }) => {
+        if (!coordinates[0] || !coordinates[1]) return []
+        const isBull = overlay.extendData?.direction === 'bullish'
+        const fillColor = isBull ? 'rgba(0, 200, 255, 0.14)' : 'rgba(255, 153, 51, 0.14)'
+        const borderColor = isBull ? 'rgba(0, 200, 255, 0.75)' : 'rgba(255, 153, 51, 0.75)'
+        const pct = Number(overlay.extendData?.percentage || 0)
+        const x1 = Math.min(coordinates[0].x, coordinates[1].x)
+        const x2 = Math.max(coordinates[0].x, coordinates[1].x)
+        const y1 = Math.min(coordinates[0].y, coordinates[1].y)
+        const y2 = Math.max(coordinates[0].y, coordinates[1].y)
+        const label = pct ? `OB (${pct.toFixed(1)}%)` : 'OB'
+        return [
+          { type: 'rect',
+            attrs: { x: x1, y: y1, width: Math.max(2, x2 - x1), height: Math.max(2, y2 - y1) },
+            styles: { style: 'stroke_fill', color: fillColor, borderColor, borderSize: 1 },
+            ignoreEvent: true },
+          { type: 'text',
+            attrs: { x: x2 - 4, y: y1 + 2, text: label, align: 'right', baseline: 'top' },
+            styles: { color: borderColor, size: 10, weight: 'bold' },
+            ignoreEvent: true }
+        ]
+      }
+    })
+
+    registerOverlay({
+      name: 'smcBosLine',
+      totalStep: 2,
+      lock: true,
+      needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false,
+      needDefaultYAxisFigure: false,
+      checkEventOn: () => false,
+      createPointFigures: ({ coordinates, overlay }) => {
+        if (!coordinates[0] || !coordinates[1]) return []
+        const kind = overlay.extendData?.kind || 'BOS'
+        const dir = overlay.extendData?.direction || 'bullish'
+        const color = dir === 'bullish' ? 'rgba(0, 230, 118, 0.85)' : 'rgba(255, 82, 82, 0.85)'
+        const x1 = coordinates[0].x
+        const x2 = coordinates[1].x
+        const y = coordinates[0].y
+        return [
+          { type: 'line',
+            attrs: { coordinates: [{ x: x1, y }, { x: x2, y }] },
+            styles: { style: 'stroke', color, dashedValue: [4, 4], size: 1 },
+            ignoreEvent: true },
+          { type: 'text',
+            attrs: { x: (x1 + x2) / 2, y: y - 4, text: kind, align: 'center', baseline: 'bottom' },
+            styles: { color, size: 10, weight: 'bold' },
+            ignoreEvent: true }
+        ]
+      }
+    })
+
+    registerOverlay({
+      name: 'smcLiquidityLine',
+      totalStep: 2,
+      lock: true,
+      needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false,
+      needDefaultYAxisFigure: false,
+      checkEventOn: () => false,
+      createPointFigures: ({ coordinates, overlay }) => {
+        if (!coordinates[0] || !coordinates[1]) return []
+        const isBuy = overlay.extendData?.side === 'buy_side'
+        const swept = !!overlay.extendData?.swept
+        // BSL (buy-side liquidity, above price) = amber; SSL (sell-side, below) = cyan
+        const color = isBuy ? 'rgba(250, 173, 20, 0.85)' : 'rgba(82, 196, 200, 0.85)'
+        const x1 = coordinates[0].x
+        const x2 = coordinates[1].x
+        const y = coordinates[0].y
+        const label = isBuy ? 'BSL' : 'SSL'
+        const dashed = swept ? [2, 4] : []
+        const labelText = swept ? `${label} ×` : label
+        return [
+          { type: 'line',
+            attrs: { coordinates: [{ x: x1, y }, { x: x2, y }] },
+            styles: { style: 'stroke', color, dashedValue: dashed, size: 1 },
+            ignoreEvent: true },
+          { type: 'text',
+            attrs: { x: x2 - 4, y: y - 2, text: labelText, align: 'right', baseline: 'bottom' },
+            styles: { color, size: 10, weight: 'bold' },
+            ignoreEvent: true }
+        ]
+      }
+    })
+
+    registerOverlay({
+      name: 'smcSwingPoint',
+      totalStep: 1,
+      lock: true,
+      needDefaultPointFigure: false,
+      needDefaultXAxisFigure: false,
+      needDefaultYAxisFigure: false,
+      checkEventOn: () => false,
+      createPointFigures: ({ coordinates, overlay }) => {
+        if (!coordinates[0]) return []
+        const isHigh = overlay.extendData?.type === 'high'
+        return [
+          { type: 'text',
+            attrs: {
+              x: coordinates[0].x,
+              y: coordinates[0].y + (isHigh ? -8 : 12),
+              text: isHigh ? 'PH' : 'PL',
+              align: 'center',
+              baseline: isHigh ? 'bottom' : 'top'
+            },
+            styles: { color: '#9e9e9e', size: 10, weight: 'bold' },
+            ignoreEvent: true }
         ]
       }
     })
@@ -4576,7 +4928,13 @@ registerOverlay({
       activeDrawingTool,
       selectDrawingTool,
       clearAllDrawings,
-      addedSignalOverlayIds
+      addedSignalOverlayIds,
+      smcEnabled,
+      smcLoading,
+      smcVisible,
+      smcCategoryOptions,
+      handleSmcToggle,
+      handleSmcCategoryToggle
     }
   }
 }
@@ -4923,6 +5281,47 @@ registerOverlay({
   min-width: 40px;
   text-align: center;
   user-select: none;
+}
+
+.smc-btn-group {
+  display: inline-flex;
+  align-items: stretch;
+
+  .smc-master-btn {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .smc-caret-btn {
+    min-width: 22px;
+    padding: 4px 6px;
+    margin-left: -1px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+}
+
+.smc-options-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 160px;
+}
+
+.smc-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.smc-option-label {
+  font-size: 13px;
+  color: #333;
+}
+
+.chart-left.theme-dark .smc-option-label {
+  color: #d1d4dc;
 }
 
 .chart-left.theme-dark .indicator-btn {
