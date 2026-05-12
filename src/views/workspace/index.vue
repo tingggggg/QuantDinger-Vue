@@ -17,7 +17,7 @@
         </button>
       </div>
       <div class="workspace__toolbar-spacer"></div>
-      <span class="workspace__hint">Click a chart to focus it. Realtime is off in Workspace.</span>
+      <span class="workspace__hint">Crosshair auto-syncs across cells that share the same symbol. Realtime is off in Workspace.</span>
     </div>
 
     <!-- Chart grid -->
@@ -42,7 +42,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, provide, shallowRef } from 'vue'
 import ChartCell from './components/ChartCell.vue'
 
 // 1='1' single, 2v='1+1 vertical' (default), 2h='1+1 horizontal', 4='2x2'
@@ -70,6 +70,25 @@ export default {
     const layout = ref('2v') // default per user spec: 1+1 vertical
     const cells = reactive([])
     const focusedIdx = ref(0)
+
+    // Crosshair-time sync bus. Each ChartCell injects this object and
+    // (a) broadcasts when its user moves the local crosshair,
+    // (b) watches `event` and applies foreign timestamps to its own chart.
+    // Source-tagging prevents echo (a cell ignores its own events). Cells
+    // also self-filter by market+symbol so unrelated charts don't sync.
+    const syncEvent = shallowRef(null)
+    const workspaceSync = {
+      event: syncEvent,
+      broadcast (payload) {
+        if (!payload) return
+        // Bump _seq so identical timestamps still trigger watchers.
+        syncEvent.value = {
+          ...payload,
+          _seq: ((syncEvent.value && syncEvent.value._seq) || 0) + 1
+        }
+      }
+    }
+    provide('workspaceSync', workspaceSync)
 
     // Persisted across layout changes; we just trim/extend the visible list.
     const _ensureCells = (n) => {

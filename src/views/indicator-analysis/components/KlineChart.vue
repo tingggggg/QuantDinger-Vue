@@ -239,7 +239,7 @@ export default {
       default: null
     }
   },
-  emits: ['retry', 'price-change', 'load', 'indicator-toggle'],
+  emits: ['retry', 'price-change', 'load', 'indicator-toggle', 'chart-ready'],
   setup (props, { emit }) {
     // K线数据
     const klineData = shallowRef([])
@@ -3301,6 +3301,10 @@ registerOverlay({
         if (!chartRef.value) {
           throw new Error('图表初始化失败：无法创建图表实例')
         }
+
+        // Notify the parent that the klinecharts instance is ready. Used by
+        // Workspace ChartCell to wire crosshair-time sync across cells.
+        try { emit('chart-ready', chartRef.value) } catch (_) { /* ignore */ }
 
         // 调试：输出图表实例的所有方法，检查是否有画线工具栏相关的方法
         if (chartRef.value) {

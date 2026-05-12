@@ -53,14 +53,18 @@
         :active-indicators="activeIndicators"
         :realtime-enabled="false"
         @indicator-toggle="handleIndicatorToggle"
+        @chart-ready="onChartReady"
       />
     </div>
   </div>
 </template>
 
 <script>
-import { ref, watch } from 'vue'
+import { ref, watch, inject, onBeforeUnmount } from 'vue'
 import KlineChart from '@/views/indicator-analysis/components/KlineChart.vue'
+
+let _cellSeq = 0
+const _nextCellId = () => `chartcell-${++_cellSeq}`
 
 const MARKETS = ['USStock', 'Crypto', 'HKStock', 'CNStock', 'Forex', 'Futures', 'MOEX']
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W']
@@ -78,6 +82,7 @@ export default {
   },
   emits: ['update:market', 'update:symbol', 'update:timeframe', 'focus', 'remove'],
   setup (props, { emit }) {
+    const cellId = _nextCellId()
     const localMarket = ref(props.market)
     const localSymbol = ref(props.symbol)
     const localTimeframe = ref(props.timeframe)
@@ -124,6 +129,94 @@ export default {
     watch(() => props.symbol, v => { localSymbol.value = v })
     watch(() => props.timeframe, v => { localTimeframe.value = v })
 
+    // ===== Crosshair-time sync wiring =====
+    // Workspace provides a shared bus via provide('workspaceSync'). When the
+    // user moves the crosshair on this cell, we broadcast (timestamp, cellId).
+    // When a foreign event arrives we apply the timestamp to our chart and
+    // suppress the echo (the programmatic crosshairChange will re-fire our
+    // own onCrosshairChange subscriber).
+    const sync = inject('workspaceSync', null)
+    const chartInstance = ref(null)
+    let unsubscribe = null
+    const echoGuard = { suppress: false }
+
+    const onChartReady = (instance) => {
+      chartInstance.value = instance
+      if (!sync || !instance || typeof instance.subscribeAction !== 'function') return
+      const cb = (data) => {
+        if (echoGuard.suppress) return
+        // klinecharts onCrosshairChange payload is
+        //   { x, y, paneId, realX, kLineData, realDataIndex, dataIndex, indicatorData }
+        // The bar's timestamp lives at data.kLineData.timestamp, not data.timestamp.
+        const ts = data && data.kLineData && data.kLineData.timestamp
+        if (ts == null) return
+        // Convert cursor pixel-y -> price so peers can place the horizontal
+        // crosshair line at the same PRICE on their own y-axis (which may
+        // differ between timeframes). Sharing pixel y directly would put the
+        // line at wrong price levels.
+        let value = null
+        try {
+          const paneId = (data && data.paneId) || 'candle_pane'
+          const pt = instance.convertFromPixel({ y: data.y }, { paneId })
+          value = pt && pt.value
+        } catch (_) {}
+        // Tag broadcast with this cell's current market+symbol so peers can
+        // decide whether the timestamp is relevant to them. Different
+        // symbols (e.g. AAPL vs TSLA) won't sync; same symbol at different
+        // timeframes will.
+        sync.broadcast({
+          sourceId: cellId,
+          timestamp: ts,
+          value: value,
+          market: localMarket.value,
+          symbol: localSymbol.value
+        })
+      }
+      instance.subscribeAction('onCrosshairChange', cb)
+      // klinecharts unsubscribeAction wants the same callback ref.
+      unsubscribe = () => {
+        try { instance.unsubscribeAction && instance.unsubscribeAction('onCrosshairChange', cb) } catch (_) {}
+      }
+    }
+
+    if (sync) {
+      watch(() => sync.event.value, (evt) => {
+        if (!evt) return
+        if (evt.sourceId === cellId) return
+        // Only sync if this cell tracks the same instrument as the sender.
+        // Different symbols (AAPL vs TSLA) or markets won't sync; same
+        // symbol at different timeframes will.
+        if (evt.market !== localMarket.value || evt.symbol !== localSymbol.value) return
+        const inst = chartInstance.value
+        if (!inst || typeof inst.executeAction !== 'function') return
+        // setCrosshair internally takes pixel x (cr.x), NOT timestamp.
+        // Project foreign (timestamp, value) -> local (x, y) on the candle
+        // pane's own time/price axes. Same symbol at different timeframes
+        // share a price scale, so value lines up nicely.
+        let x, y
+        try {
+          const pt = inst.convertToPixel(
+            { timestamp: evt.timestamp, value: evt.value },
+            { paneId: 'candle_pane' }
+          )
+          x = pt && pt.x
+          y = pt && pt.y
+        } catch (_) {}
+        if (x == null || !isFinite(x)) return
+        if (y == null || !isFinite(y)) y = 0 // fall back: horizontal hidden at top
+        // executeAction('onCrosshairChange', {x, y, paneId}) moves the
+        // crosshair visually. setCrosshair is called with notExecuteAction:true
+        // so subscribers are NOT re-fired (no echo).
+        echoGuard.suppress = true
+        try { inst.executeAction('onCrosshairChange', { x: x, y: y, paneId: 'candle_pane' }) } catch (_) {}
+        setTimeout(() => { echoGuard.suppress = false }, 0)
+      })
+    }
+
+    onBeforeUnmount(() => {
+      if (unsubscribe) unsubscribe()
+    })
+
     const onMarketChange = (v) => {
       localMarket.value = v
       emit('update:market', v)
@@ -150,7 +243,8 @@ export default {
       onMarketChange,
       onSymbolEnter,
       onTimeframeChange,
-      handleIndicatorToggle
+      handleIndicatorToggle,
+      onChartReady
     }
   }
 }
