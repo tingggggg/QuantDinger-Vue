@@ -30,6 +30,13 @@ export const asyncRouterMap = [
         component: () => import('@/views/indicator-ide'),
         meta: { title: 'menu.dashboard.indicatorIde', keepAlive: true, icon: 'code', permission: ['dashboard'] }
       },
+      // 3.1 Workspace — 多图视窗：同标的多 timeframe / 多标的同框比较
+      {
+        path: '/workspace',
+        name: 'Workspace',
+        component: () => import('@/views/workspace'),
+        meta: { title: 'menu.dashboard.workspace', keepAlive: true, icon: 'appstore', permission: ['dashboard'] }
+      },
       // 4. 策略与实盘（指标信号策略：创建 / 管理 / 与实盘联动；不含 Python 脚本策略）
       {
         path: '/strategy-live',

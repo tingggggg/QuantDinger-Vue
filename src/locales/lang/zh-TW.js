@@ -35,6 +35,7 @@ const locale = {
 'menu.dashboard.tradingAssistant': '交易助手',
 'menu.dashboard.backtestCenter': '回測中心',
 'menu.dashboard.indicatorIde': '指標 IDE',
+'menu.dashboard.workspace': '指標 IDE (MTF)',
 'indicatorIde.direction': '交易方向',
 'indicatorIde.tuningLaunchTitle': '智能調參',
 'indicatorIde.tuningLaunchDesc': '自動搜尋最佳策略參數以提升回測報酬。選擇下方調參方式後點擊執行。',

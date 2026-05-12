@@ -37,6 +37,7 @@ const locale = {
   'menu.dashboard.tradingAssistant': '策略与实盘',
   'menu.dashboard.backtestCenter': '回测中心',
   'menu.dashboard.indicatorIde': '指标 IDE',
+  'menu.dashboard.workspace': '指标 IDE (MTF)',
   'menu.dashboard.tradingBot': '交易机器人',
   // ---- 交易机器人页 ----
   'trading-bot.pageTitle': '交易机器人',

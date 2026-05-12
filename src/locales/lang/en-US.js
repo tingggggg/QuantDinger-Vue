@@ -37,6 +37,7 @@ const locale = {
   'menu.dashboard.tradingAssistant': 'Strategy & Live',
   'menu.dashboard.backtestCenter': 'Backtest Center',
   'menu.dashboard.indicatorIde': 'Indicator IDE',
+  'menu.dashboard.workspace': 'Indicator IDE(MTF)',
   'menu.dashboard.tradingBot': 'Trading Bot',
   // ---- Trading Bot Page ----
   'trading-bot.pageTitle': 'Trading Bots',
