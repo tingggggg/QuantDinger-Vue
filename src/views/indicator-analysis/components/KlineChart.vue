@@ -106,7 +106,7 @@
           </div>
         </div>
         <div
-          id="kline-chart-container"
+          ref="chartContainerEl"
           class="kline-chart-container"
         ></div>
         <canvas
@@ -289,6 +289,9 @@ export default {
     const wmCanvasRef = ref(null)
     /** 用于全屏时 Modal 挂到与 K 线同一全屏子树（见 chartModalGetContainer） */
     const chartRootEl = ref(null)
+    /** Chart container element ref (was id="kline-chart-container", switched
+     *  to ref so multiple KlineChart instances can mount on the same page). */
+    const chartContainerEl = ref(null)
     let _wmTimer = null
     let _wmObserver = null
 
@@ -3235,14 +3238,14 @@ registerOverlay({
 
     // --- 图表初始化函数 ---
     const initChart = () => {
-      const container = document.getElementById('kline-chart-container')
+      const container = chartContainerEl.value
       if (!container) return
 
       if (container.clientWidth === 0 || container.clientHeight === 0) {
         let retryCount = 0
         const maxRetries = 10
         const checkAndInit = () => {
-          const checkContainer = document.getElementById('kline-chart-container')
+          const checkContainer = chartContainerEl.value
           if (checkContainer && checkContainer.clientWidth > 0 && checkContainer.clientHeight > 0) {
             initChart()
           } else if (retryCount < maxRetries) {
@@ -3267,7 +3270,7 @@ registerOverlay({
 
       try {
         // 初始化 KLineChart
-        const container = document.getElementById('kline-chart-container')
+        const container = chartContainerEl.value
         if (!container) {
           throw new Error('容器元素不存在')
         }
@@ -3521,7 +3524,7 @@ registerOverlay({
           }
         }, 100)
       } else {
-        const container = document.getElementById('kline-chart-container')
+        const container = chartContainerEl.value
         if (container && container.clientWidth > 0 && container.clientHeight > 0) {
           initChart()
         }
@@ -4749,7 +4752,7 @@ registerOverlay({
       })
 
       nextTick(() => {
-        const el = document.getElementById('kline-chart-container')
+        const el = chartContainerEl.value
         if (!el || typeof ResizeObserver === 'undefined') return
         chartResizeObserver = new ResizeObserver(() => {
           if (chartResizeRafId != null) cancelAnimationFrame(chartResizeRafId)
@@ -4759,7 +4762,7 @@ registerOverlay({
               chartRef.value.resize()
               scheduleSyncVolumePaneLayout()
             } else {
-              const c = document.getElementById('kline-chart-container')
+              const c = chartContainerEl.value
               if (c && c.clientWidth > 0 && c.clientHeight > 0) {
                 initChart()
               }
@@ -4887,6 +4890,7 @@ registerOverlay({
       themeConfig,
       wmCanvasRef,
       chartRootEl,
+      chartContainerEl,
       chartModalGetContainer,
       getIndicatorColor,
       handleRetry,
