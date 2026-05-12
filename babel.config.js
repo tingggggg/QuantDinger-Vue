@@ -2,7 +2,7 @@ const IS_PROD = ['production', 'prod'].includes(process.env.NODE_ENV)
 const IS_PREVIEW = process.env.VUE_APP_PREVIEW === 'true'
 
 const plugins = []
-if (IS_PROD && !IS_PREVIEW) {
+if (IS_PROD && !IS_PREVIEW && !process.env.KEEP_CONSOLE) {
   // 去除日志的插件，
   plugins.push('transform-remove-console')
 }
