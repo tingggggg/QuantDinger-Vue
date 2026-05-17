@@ -71,21 +71,25 @@ export default {
     const cells = reactive([])
     const focusedIdx = ref(0)
 
-    // Crosshair-time sync bus. Each ChartCell injects this object and
-    // (a) broadcasts when its user moves the local crosshair,
-    // (b) watches `event` and applies foreign timestamps to its own chart.
-    // Source-tagging prevents echo (a cell ignores its own events). Cells
-    // also self-filter by market+symbol so unrelated charts don't sync.
-    const syncEvent = shallowRef(null)
+    // Workspace sync bus. Each ChartCell injects this object to share
+    // crosshair and visible-range state across cells. Source-tagging +
+    // market/symbol filtering prevent echoes and cross-symbol bleed.
+    //
+    //   crosshairEvent: {sourceId, timestamp, value, market, symbol}
+    //   rangeEvent:     {sourceId, fromTime, toTime, market, symbol}
+    const crosshairEvent = shallowRef(null)
+    const rangeEvent = shallowRef(null)
+    const bumpSeq = (prev) => ((prev && prev._seq) || 0) + 1
     const workspaceSync = {
-      event: syncEvent,
-      broadcast (payload) {
+      crosshairEvent,
+      rangeEvent,
+      broadcastCrosshair (payload) {
         if (!payload) return
-        // Bump _seq so identical timestamps still trigger watchers.
-        syncEvent.value = {
-          ...payload,
-          _seq: ((syncEvent.value && syncEvent.value._seq) || 0) + 1
-        }
+        crosshairEvent.value = { ...payload, _seq: bumpSeq(crosshairEvent.value) }
+      },
+      broadcastRange (payload) {
+        if (!payload) return
+        rangeEvent.value = { ...payload, _seq: bumpSeq(rangeEvent.value) }
       }
     }
     provide('workspaceSync', workspaceSync)

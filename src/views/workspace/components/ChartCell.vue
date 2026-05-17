@@ -129,42 +129,58 @@ export default {
     watch(() => props.symbol, v => { localSymbol.value = v })
     watch(() => props.timeframe, v => { localTimeframe.value = v })
 
-    // ===== Crosshair-time sync wiring =====
-    // Workspace provides a shared bus via provide('workspaceSync'). When the
-    // user moves the crosshair on this cell, we broadcast (timestamp, cellId).
-    // When a foreign event arrives we apply the timestamp to our chart and
-    // suppress the echo (the programmatic crosshairChange will re-fire our
-    // own onCrosshairChange subscriber).
+    // ===== Workspace sync wiring (crosshair + visible range) =====
+    // Workspace provides a shared bus via provide('workspaceSync'). On local
+    // crosshair / scroll / zoom we broadcast; on foreign events from cells
+    // with the same market+symbol we replay onto our own axes. Source-tagging
+    // prevents echo, and separate suppress flags isolate the two streams.
     const sync = inject('workspaceSync', null)
     const chartInstance = ref(null)
-    let unsubscribe = null
-    const echoGuard = { suppress: false }
+    let unsubscribeCrosshair = null
+    let unsubscribeRange = null
+    const crosshairGuard = { suppress: false }
+    const rangeGuard = { suppress: false }
+    // Dedup: skip broadcasting identical range tuples back-to-back, because
+    // klinecharts re-fires onVisibleRangeChange on every redraw/resize.
+    let lastSentRange = null
+    // Index nearest to a timestamp via binary search on the dataList.
+    const nearestIndex = (dataList, ts) => {
+      if (!dataList.length) return -1
+      let lo = 0; let hi = dataList.length - 1
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (dataList[mid].timestamp < ts) lo = mid + 1
+        else hi = mid
+      }
+      // Pick the closer of lo / lo-1.
+      if (lo > 0 && Math.abs(dataList[lo - 1].timestamp - ts) < Math.abs(dataList[lo].timestamp - ts)) {
+        return lo - 1
+      }
+      return lo
+    }
 
     const onChartReady = (instance) => {
       chartInstance.value = instance
       if (!sync || !instance || typeof instance.subscribeAction !== 'function') return
-      const cb = (data) => {
-        if (echoGuard.suppress) return
-        // klinecharts onCrosshairChange payload is
+
+      // --- Crosshair: broadcast (timestamp, price) on hover ---
+      const crosshairCb = (data) => {
+        if (crosshairGuard.suppress) return
+        // klinecharts onCrosshairChange payload:
         //   { x, y, paneId, realX, kLineData, realDataIndex, dataIndex, indicatorData }
-        // The bar's timestamp lives at data.kLineData.timestamp, not data.timestamp.
+        // The bar's timestamp lives at data.kLineData.timestamp.
         const ts = data && data.kLineData && data.kLineData.timestamp
         if (ts == null) return
         // Convert cursor pixel-y -> price so peers can place the horizontal
-        // crosshair line at the same PRICE on their own y-axis (which may
-        // differ between timeframes). Sharing pixel y directly would put the
-        // line at wrong price levels.
+        // line at the same PRICE on their own y-axis (which may differ
+        // between timeframes).
         let value = null
         try {
           const paneId = (data && data.paneId) || 'candle_pane'
           const pt = instance.convertFromPixel({ y: data.y }, { paneId })
           value = pt && pt.value
         } catch (_) {}
-        // Tag broadcast with this cell's current market+symbol so peers can
-        // decide whether the timestamp is relevant to them. Different
-        // symbols (e.g. AAPL vs TSLA) won't sync; same symbol at different
-        // timeframes will.
-        sync.broadcast({
+        sync.broadcastCrosshair({
           sourceId: cellId,
           timestamp: ts,
           value: value,
@@ -172,27 +188,48 @@ export default {
           symbol: localSymbol.value
         })
       }
-      instance.subscribeAction('onCrosshairChange', cb)
-      // klinecharts unsubscribeAction wants the same callback ref.
-      unsubscribe = () => {
-        try { instance.unsubscribeAction && instance.unsubscribeAction('onCrosshairChange', cb) } catch (_) {}
+      instance.subscribeAction('onCrosshairChange', crosshairCb)
+      unsubscribeCrosshair = () => {
+        try { instance.unsubscribeAction && instance.unsubscribeAction('onCrosshairChange', crosshairCb) } catch (_) {}
+      }
+
+      // --- Visible range: broadcast (fromTime, toTime) on scroll/zoom ---
+      const rangeCb = (data) => {
+        if (rangeGuard.suppress) return
+        if (!data) return
+        // klinecharts payload: { from, to, realFrom, realTo } (bar indices).
+        // realFrom/realTo are clamped to dataList bounds.
+        const dataList = instance.getDataList()
+        if (!dataList.length) return
+        const a = Math.max(0, Math.min(data.realFrom | 0, dataList.length - 1))
+        const b = Math.max(0, Math.min(data.realTo | 0, dataList.length - 1))
+        const fromTime = dataList[a] && dataList[a].timestamp
+        const toTime = dataList[b] && dataList[b].timestamp
+        if (fromTime == null || toTime == null) return
+        // Dedup: klinecharts re-fires onVisibleRangeChange on every redraw.
+        if (lastSentRange && lastSentRange.fromTime === fromTime && lastSentRange.toTime === toTime) return
+        lastSentRange = { fromTime, toTime }
+        sync.broadcastRange({
+          sourceId: cellId,
+          fromTime: fromTime,
+          toTime: toTime,
+          market: localMarket.value,
+          symbol: localSymbol.value
+        })
+      }
+      instance.subscribeAction('onVisibleRangeChange', rangeCb)
+      unsubscribeRange = () => {
+        try { instance.unsubscribeAction && instance.unsubscribeAction('onVisibleRangeChange', rangeCb) } catch (_) {}
       }
     }
 
     if (sync) {
-      watch(() => sync.event.value, (evt) => {
-        if (!evt) return
-        if (evt.sourceId === cellId) return
-        // Only sync if this cell tracks the same instrument as the sender.
-        // Different symbols (AAPL vs TSLA) or markets won't sync; same
-        // symbol at different timeframes will.
+      // Apply foreign crosshair events.
+      watch(() => sync.crosshairEvent.value, (evt) => {
+        if (!evt || evt.sourceId === cellId) return
         if (evt.market !== localMarket.value || evt.symbol !== localSymbol.value) return
         const inst = chartInstance.value
         if (!inst || typeof inst.executeAction !== 'function') return
-        // setCrosshair internally takes pixel x (cr.x), NOT timestamp.
-        // Project foreign (timestamp, value) -> local (x, y) on the candle
-        // pane's own time/price axes. Same symbol at different timeframes
-        // share a price scale, so value lines up nicely.
         let x, y
         try {
           const pt = inst.convertToPixel(
@@ -203,18 +240,48 @@ export default {
           y = pt && pt.y
         } catch (_) {}
         if (x == null || !isFinite(x)) return
-        if (y == null || !isFinite(y)) y = 0 // fall back: horizontal hidden at top
-        // executeAction('onCrosshairChange', {x, y, paneId}) moves the
-        // crosshair visually. setCrosshair is called with notExecuteAction:true
-        // so subscribers are NOT re-fired (no echo).
-        echoGuard.suppress = true
+        if (y == null || !isFinite(y)) y = 0
+        crosshairGuard.suppress = true
         try { inst.executeAction('onCrosshairChange', { x: x, y: y, paneId: 'candle_pane' }) } catch (_) {}
-        setTimeout(() => { echoGuard.suppress = false }, 0)
+        setTimeout(() => { crosshairGuard.suppress = false }, 0)
+      })
+
+      // Apply foreign visible-range events: match the same time window on
+      // our own axis by adjusting barSpace + scrolling to the right edge.
+      watch(() => sync.rangeEvent.value, (evt) => {
+        if (!evt || evt.sourceId === cellId) return
+        if (evt.market !== localMarket.value || evt.symbol !== localSymbol.value) return
+        const inst = chartInstance.value
+        if (!inst || typeof inst.setBarSpace !== 'function' ||
+            typeof inst.scrollToTimestamp !== 'function') return
+        const dataList = inst.getDataList && inst.getDataList()
+        if (!dataList || !dataList.length) return
+        const fromIdx = nearestIndex(dataList, evt.fromTime)
+        const toIdx = nearestIndex(dataList, evt.toTime)
+        const barCount = Math.max(2, toIdx - fromIdx + 1)
+        // Pane width = candle pane DOM width. getDom signature varies; try
+        // a couple of shapes before giving up.
+        let paneWidth = 0
+        try {
+          const dom = inst.getDom && (inst.getDom('candle_pane', 'main') || inst.getDom('candle_pane'))
+          paneWidth = (dom && dom.clientWidth) || 0
+        } catch (_) {}
+        if (!paneWidth) paneWidth = 800 // sane fallback
+        const newBarSpace = Math.max(1, Math.min(50, paneWidth / barCount))
+        rangeGuard.suppress = true
+        try {
+          inst.setBarSpace(newBarSpace)
+          inst.scrollToTimestamp(evt.toTime)
+        } catch (_) {}
+        // setBarSpace + scrollToTimestamp each re-fire onVisibleRangeChange.
+        // Keep the guard up long enough for both to settle.
+        setTimeout(() => { rangeGuard.suppress = false }, 80)
       })
     }
 
     onBeforeUnmount(() => {
-      if (unsubscribe) unsubscribe()
+      if (unsubscribeCrosshair) unsubscribeCrosshair()
+      if (unsubscribeRange) unsubscribeRange()
     })
 
     const onMarketChange = (v) => {
