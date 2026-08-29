@@ -231,7 +231,7 @@
           </div>
         </div>
 
-        <portfolio-result v-else-if="mode === 'portfolio'" :result="result" :is-dark="isDarkTheme" />
+        <portfolio-result v-else-if="mode === 'portfolio'" :result="result" :is-dark="isDarkTheme" :overlay-indicator="smcOverlayIndicator" />
         <factor-research-result v-else :result="factorResult" :is-dark="isDarkTheme" />
       </section>
     </div>
@@ -311,6 +311,7 @@ import {
   getStrategyFactorResearchRun,
   getStrategyBacktestHistory,
   getStrategyBacktestRun,
+  getIndicatorListForStrategy,
   runStrategyFactorResearch,
   runStrategyBacktest
 } from '@/api/strategy'
@@ -328,6 +329,9 @@ export default {
       factorHistory: [],
       source: null,
       manifest: null,
+      // Chart indicator layered onto the trade review chart. Only populated
+      // for SMC runs -- see loadSmcOverlayIndicator.
+      smcOverlayIndicator: null,
       backtestRangePolicy: null,
       params: {},
       result: null,
@@ -557,6 +561,10 @@ export default {
     result () {
       this.$nextTick(this.renderEquityChart)
     },
+    manifest: {
+      immediate: true,
+      handler () { this.loadSmcOverlayIndicator() }
+    },
     isDarkTheme () {
       this.$nextTick(this.renderEquityChart)
     },
@@ -581,6 +589,37 @@ export default {
     if (this.equityChart) this.equityChart.dispose()
   },
   methods: {
+    async loadSmcOverlayIndicator () {
+      // Layer the SMC chart indicator onto the trade review chart, but only
+      // for runs that actually used SMC. The manifest already records which
+      // factors a strategy depends on, so that is the signal -- matching on
+      // the strategy name would break the moment one is renamed, and offering
+      // a general indicator picker would put a control on every backtest to
+      // serve one family of them.
+      const factors = (this.manifest && this.manifest.factorDependencies) || []
+      const usesSmc = factors.some(name => String(name || '').toUpperCase().startsWith('SMC_'))
+      if (!usesSmc) {
+        this.smcOverlayIndicator = null
+        return
+      }
+      if (this.smcOverlayIndicator) return
+      try {
+        const res = await getIndicatorListForStrategy({})
+        const list = (res && res.data) || []
+        // The chart indicator that draws the zones, not the factors the
+        // strategy traded on -- they are separate objects with shared logic.
+        const found = list.find(item => String(item.name || '').toUpperCase().includes('SMC'))
+        if (!found || !found.code) {
+          this.smcOverlayIndicator = null
+          return
+        }
+        this.smcOverlayIndicator = { id: found.id, name: found.name, code: found.code }
+      } catch (err) {
+        // An overlay is a convenience; failing to fetch it must not stop the
+        // review chart from opening.
+        this.smcOverlayIndicator = null
+      }
+    },
     renderEquityChart () {
       if (!this.$refs.equityChart || !this.equityPoints.length) {
         if (this.equityChart) this.equityChart.clear()

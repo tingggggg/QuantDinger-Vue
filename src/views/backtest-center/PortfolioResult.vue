@@ -227,7 +227,7 @@
           :initial-before-time="reviewWindow.beforeTime"
           :initial-limit="reviewWindow.limit"
           :theme="isDark ? 'dark' : 'light'"
-          :active-indicators="[]"
+          :active-indicators="reviewIndicators"
           :realtime-enabled="false"
           :full-width="true"
           @load="renderReviewMarkers"
@@ -256,7 +256,11 @@ export default {
   components: { KlineChart },
   props: {
     result: { type: Object, required: true },
-    isDark: { type: Boolean, default: false }
+    isDark: { type: Boolean, default: false },
+    // { id, name, code } of a chart indicator to draw on the review chart, or
+    // null. Supplied only for SMC runs; every other backtest passes nothing
+    // and the chart behaves exactly as before.
+    overlayIndicator: { type: Object, default: null }
   },
   data () {
     return {
@@ -356,6 +360,34 @@ export default {
       )
     },
     reviewWindow () { return buildTradeReviewWindow(this.selectedTrade, this.reviewTimeframe) },
+    reviewIndicators () {
+      // KlineChart runs python indicators client-side through Pyodide, so the
+      // entry has to carry both the source and a calculate() that hands it to
+      // the chart. `this.$refs.reviewChart` only exists once the modal is
+      // open, which is why calculate resolves it lazily rather than closing
+      // over it here.
+      const indicator = this.overlayIndicator
+      if (!indicator || !indicator.code) return []
+      const chartId = `review-smc-${indicator.id}`
+      return [{
+        id: chartId,
+        instanceId: chartId,
+        originalId: indicator.id,
+        name: indicator.name,
+        type: 'python',
+        code: indicator.code,
+        params: {},
+        calculate: async (klineData, params = {}) => {
+          const chart = this.$refs.reviewChart
+          if (!chart || typeof chart.executePythonStrategy !== 'function') return null
+          return chart.executePythonStrategy(indicator.code, klineData, params || {}, {
+            id: indicator.id,
+            originalId: indicator.id,
+            name: indicator.name
+          })
+        }
+      }]
+    },
     rebalanceColumns () {
       return [
         { title: this.$t('strategyV2.backtest.time'), dataIndex: 'time', width: 170, customRender: this.formatDate },
