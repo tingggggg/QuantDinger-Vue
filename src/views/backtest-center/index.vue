@@ -346,7 +346,7 @@ export default {
         sourceId: null,
         startDate: moment().subtract(1, 'year'),
         endDate: moment(),
-        initialCapital: 10000,
+        initialCapital: 50000,
         commission: 0.0005,
         slippage: 0.0005,
         leverageEnabled: false,
