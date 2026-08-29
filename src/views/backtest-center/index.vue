@@ -115,6 +115,20 @@
                     :checked="Boolean(params[item.name])"
                     @change="value => setParam(item.name, value)"
                   />
+                  <!-- A parameter that declares choices gets a picker. Without
+                       this branch anything non-boolean fell through to the
+                       number input below, so a string parameter such as a
+                       timeframe was impossible to set at all. -->
+                  <a-select
+                    v-else-if="item.options && item.options.length"
+                    :value="params[item.name]"
+                    class="full-width"
+                    @change="value => setParam(item.name, value)"
+                  >
+                    <a-select-option v-for="option in item.options" :key="String(option)" :value="option">
+                      {{ option }}
+                    </a-select-option>
+                  </a-select>
                   <a-input-number
                     v-else
                     :value="params[item.name]"
