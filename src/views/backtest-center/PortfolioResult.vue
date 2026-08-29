@@ -155,9 +155,11 @@
           :columns="executionColumns"
           :data-source="executionRows"
           :row-key="(row, index) => row.order_id || index"
+          :custom-row="executionRowProps"
           size="small"
           :scroll="{ x: 1250 }"
-          :pagination="{ pageSize: 8 }" />
+          :pagination="{ pageSize: 8 }"
+          class="clickable-table" />
       </a-tab-pane>
 
       <a-tab-pane key="attribution" :tab="$t('strategyV2.backtest.tabs.attribution')">
@@ -193,7 +195,19 @@
       wrap-class-name="trade-review-modal"
       :destroy-on-close="true"
     >
-      <div v-if="selectedTrade.symbol" class="review-summary">
+      <div v-if="selectedTrade.symbol && selectedTrade.is_execution" class="review-summary">
+        <span>{{ $t('strategyV2.backtest.signalTime') }}</span>
+        <strong>{{ formatDate(selectedTrade.signal_time) }}</strong>
+        <a-icon type="arrow-right" />
+        <span>{{ $t('strategyV2.backtest.fillTime') }}</span>
+        <strong>{{ formatDate(selectedTrade.fill_time) }}</strong>
+        <span>{{ selectedTrade.side }}</span>
+        <strong>{{ formatNumber(selectedTrade.quantity, 4) }}</strong>
+        <span>@</span>
+        <strong>{{ formatNumber(selectedTrade.price, 4) }}</strong>
+        <span v-if="selectedTrade.close_reason">{{ selectedTrade.close_reason }}</span>
+      </div>
+      <div v-else-if="selectedTrade.symbol" class="review-summary">
         <span>{{ formatDate(selectedTrade.entry_time) }}</span>
         <strong>{{ formatNumber(selectedTrade.entry_price, 4) }}</strong>
         <a-icon type="arrow-right" />
@@ -509,6 +523,31 @@ export default {
     },
     resizeChart () { if (this.chart) this.chart.resize() },
     tradeRowProps (record) { return { on: { click: () => { this.selectedTrade = record; this.reviewVisible = true } } } },
+    executionRowProps (record) {
+      // An execution is a single fill, not a round trip, so it carries no
+      // entry/exit pair for the review window to work from. Signal time and
+      // fill time map onto that shape naturally, and reviewing them as a pair
+      // is the point: the gap between the two markers IS the execution lag,
+      // which is what you look at to check the strategy acted on the bar it
+      // meant to. Both markers sit at the fill price -- there is only one
+      // price on an execution -- so read their horizontal position, not their
+      // level.
+      return {
+        on: {
+          click: () => {
+            this.selectedTrade = {
+              ...record,
+              is_execution: true,
+              entry_time: record.signal_time,
+              exit_time: record.fill_time || record.signal_time,
+              entry_price: record.price,
+              exit_price: record.price
+            }
+            this.reviewVisible = true
+          }
+        }
+      }
+    },
     renderReviewMarkers () {
       if (this.reviewMarkerTimer) clearTimeout(this.reviewMarkerTimer)
       this.reviewMarkerTimer = setTimeout(() => {
@@ -523,22 +562,39 @@ export default {
 
         component.clearBacktestOverlays()
         const isShort = String(trade.side || '').toLowerCase() === 'short'
+        // An execution's two markers are signal and fill, not entry and exit.
+        // Labelling them "entry"/"exit" would read as a completed round trip
+        // that never happened.
+        const isExecution = trade.is_execution === true
+        const isSell = String(trade.side || '').toLowerCase() === 'sell'
+        const openLabel = isExecution
+          ? this.$t('strategyV2.backtest.signalTime')
+          : this.$t('strategyV2.backtest.entryMarker')
+        const closeLabel = isExecution
+          ? this.$t('strategyV2.backtest.fillTime')
+          : this.$t('strategyV2.backtest.exitMarker')
+        // For an execution the colour follows its own side; for a trade it
+        // follows the direction of the round trip.
+        const openColor = isExecution
+          ? (isSell ? '#f6465d' : '#0ecb81')
+          : (isShort ? '#f6465d' : '#0ecb81')
+        const closeColor = isExecution ? openColor : (isShort ? '#0ecb81' : '#f6465d')
         if (Number.isFinite(entryPrice)) {
           component.addBacktestOverlay(this.reviewMarkerConfig({
             timestamp: entryTime,
             price: entryPrice,
-            text: this.$t('strategyV2.backtest.entryMarker'),
+            text: openLabel,
             side: isShort ? 'sell' : 'buy',
-            color: isShort ? '#f6465d' : '#0ecb81'
+            color: openColor
           }))
         }
-        if (Number.isFinite(exitPrice)) {
+        if (Number.isFinite(exitPrice) && exitTime !== entryTime) {
           component.addBacktestOverlay(this.reviewMarkerConfig({
             timestamp: exitTime,
             price: exitPrice,
-            text: this.$t('strategyV2.backtest.exitMarker'),
+            text: closeLabel,
             side: isShort ? 'buy' : 'sell',
-            color: isShort ? '#0ecb81' : '#f6465d'
+            color: closeColor
           }))
         }
         this.focusReviewRange(chart, entryTime, exitTime)
