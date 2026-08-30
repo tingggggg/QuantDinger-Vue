@@ -83,6 +83,19 @@
               <a-form-item :label="$t('backtest-center.slippage')">
                 <a-input-number v-model="form.slippage" :min="0" :max="1" :step="0.0001" class="full-width" />
               </a-form-item>
+              <!-- Only for strategies that declare set_universe(pool=...).
+                   The pool cannot be a code parameter -- context.params is a
+                   compile error inside initialize -- so swapping lists to
+                   compare them has to happen here, on the run. -->
+              <a-form-item v-if="poolBased" :label="$t('backtestCenter.universe')">
+                <a-select v-model="form.universe" class="full-width" :placeholder="$t('backtestCenter.universeDefault')">
+                  <a-select-option value="">{{ $t('backtestCenter.universeDefault') }} ({{ declaredUniverse }})</a-select-option>
+                  <a-select-option v-for="item in selectableUniverses" :key="item.code" :value="item.code">
+                    {{ item.label }} · {{ item.member_count }}
+                  </a-select-option>
+                </a-select>
+                <small class="param-hint">{{ $t('backtestCenter.universeHint') }}</small>
+              </a-form-item>
               <a-form-item v-if="mode === 'portfolio'" :label="$t('strategyV2.leverageEnabled')">
                 <div class="switch-row">
                   <a-switch v-model="form.leverageEnabled" :disabled="!leverageAllowed" />
@@ -317,6 +330,7 @@ import { mapState } from 'vuex'
 import { calculateTradeValueUsd } from '@/utils/tradeReview'
 import { timestampMillisecondsUtc } from '@/utils/utcInstant'
 import { formatBacktestTime } from '@/utils/userTime'
+import { getUniverses } from '@/api/universe'
 import {
   compileScriptSource,
   getScriptSourceDetail,
@@ -347,6 +361,9 @@ export default {
       // for SMC runs -- see loadSmcOverlayIndicator.
       smcOverlayIndicator: null,
       backtestRangePolicy: null,
+      // Lists available to redirect a pool-driven strategy at. Loaded once;
+      // only read when the compiled manifest turns out to declare a pool.
+      universes: [],
       params: {},
       result: null,
       factorResult: null,
@@ -368,7 +385,9 @@ export default {
         commission: 0.0005,
         slippage: 0.0005,
         leverageEnabled: false,
-        leverage: 1
+        leverage: 1,
+        // Empty means "whatever the strategy declared".
+        universe: ''
       },
       factorForm: {
         factorId: 'momentum_20',
@@ -413,6 +432,25 @@ export default {
         return this.$t('strategyV2.factorResearch.readyDesc')
       }
       return this.manifest ? this.$t('strategyV2.backtest.readyDesc') : this.$t('backtest-center.emptyResult')
+    },
+    poolBased () {
+      if (this.mode !== 'portfolio') return false
+      const universe = (this.manifest && this.manifest.universe) || {}
+      return Boolean(universe.reference)
+    },
+    declaredUniverse () {
+      const reference = String(((this.manifest && this.manifest.universe) || {}).reference || '')
+      return reference.replace(/^POOL:/i, '') || '-'
+    },
+    selectableUniverses () {
+      // Retired lists are already filtered out server-side, so anything here
+      // still resolves. An empty one would fail the run with universeHasNoData
+      // rather than silently returning nothing, so it is left selectable.
+      return (this.universes || []).map(item => ({
+        code: item.code,
+        member_count: Number(item.member_count || 0),
+        label: item.name || item.code
+      }))
     },
     leverageAllowed () {
       return Boolean(this.manifest && this.manifest.leverageAllowed)
@@ -588,6 +626,7 @@ export default {
   },
   async mounted () {
     await this.refreshPage()
+    await this.loadUniverses()
     const routeSourceId = Number(this.$route.query.sourceId)
     const sourceId = routeSourceId || (this.sources[0] && Number(this.sources[0].id))
     if (sourceId) {
@@ -603,6 +642,16 @@ export default {
     if (this.equityChart) this.equityChart.dispose()
   },
   methods: {
+    async loadUniverses () {
+      // A missing list is not worth an error toast: the picker simply does not
+      // appear, and the strategy runs against the pool it declared.
+      try {
+        const response = await getUniverses()
+        this.universes = (response && response.data) || []
+      } catch (error) {
+        this.universes = []
+      }
+    },
     async loadSmcOverlayIndicator () {
       // Layer the SMC chart indicator onto the trade review chart, but only
       // for runs that actually used SMC. The manifest already records which
@@ -859,6 +908,9 @@ export default {
           slippage: this.form.slippage,
           leverageEnabled: this.form.leverageEnabled,
           leverage: this.form.leverageEnabled ? this.form.leverage : 1,
+          // Sent only when the strategy is pool-driven; the backend rejects an
+          // override on a strategy that names its instruments outright.
+          universe: this.poolBased ? this.form.universe : '',
           params: this.params
         })
         this.result = response.data

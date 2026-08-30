@@ -59,7 +59,19 @@
               <a-button size="small" icon="unordered-list" @click="viewMembers(item)">{{ t('universeManager.viewMembers') }}</a-button>
               <a-button v-if="item.is_system && item.code !== 'watchlist'" size="small" icon="copy" :loading="cloningId === item.id" @click="clone(item)">{{ t('universeManager.copyToMine') }}</a-button>
               <a-button v-if="isEditable(item)" size="small" icon="edit" @click="editUniverse(item)">{{ t('universeManager.edit') }}</a-button>
+              <a-popconfirm
+                v-if="isEditable(item)"
+                :title="t('universeManager.deleteConfirm')"
+                :okText="t('universeManager.delete')"
+                :cancelText="t('universeManager.cancel')"
+                okType="danger"
+                @confirm="remove(item)">
+                <a-button size="small" icon="delete" type="danger" ghost :loading="deletingId === item.id">{{ t('universeManager.delete') }}</a-button>
+              </a-popconfirm>
             </div>
+            <!-- The code, not the name, is what a strategy writes in
+                 set_universe(pool="..."), so it has to be readable somewhere. -->
+            <code v-if="isEditable(item)" class="pool-code" :title="t('universeManager.poolHint')">pool="{{ item.code }}"</code>
           </article>
         </div>
         <a-empty v-else :description="t('universeManager.empty')" />
@@ -75,7 +87,9 @@
       @ok="save"
       @cancel="resetForm">
       <label class="field-label">{{ t('universeManager.name') }}</label>
-      <a-input v-model="form.name" :disabled="!!editingId" />
+      <a-input v-model="form.name" />
+      <!-- Market stays locked while editing: members are normalized against it
+           on save, so changing it would reinterpret every existing symbol. -->
       <label class="field-label">{{ t('universeManager.market') }}</label>
       <a-select v-model="form.market" :disabled="!!editingId" class="full-width">
         <a-select-option v-for="market in markets" :key="market" :value="market">{{ marketText(market) }}</a-select-option>
@@ -115,7 +129,7 @@
 
 <script>
 import { mapState } from 'vuex'
-import { cloneUniverse, createUniverse, getUniverseMembers, getUniverses, replaceUniverseMembers } from '@/api/universe'
+import { cloneUniverse, createUniverse, deleteUniverse, getUniverseMembers, getUniverses, renameUniverse, replaceUniverseMembers } from '@/api/universe'
 
 export default {
   name: 'UniverseManager',
@@ -125,6 +139,8 @@ export default {
 saving: false,
 membersLoading: false,
 cloningId: 0,
+deletingId: 0,
+editingName: '',
       activeTab: 'system',
 keyword: '',
 marketFilter: 'all',
@@ -210,8 +226,15 @@ memberPageSize: 50
       this.saving = true
       try {
         const members = this.parseMembers()
-        if (this.editingId) await replaceUniverseMembers(this.editingId, members)
-        else await createUniverse({ name: this.form.name.trim(), market: this.form.market, universeType: 'manual', members })
+        if (this.editingId) {
+          await replaceUniverseMembers(this.editingId, members)
+          // Members and name are two endpoints, so only call the rename when it
+          // actually changed -- otherwise every member edit writes a no-op.
+          const name = this.form.name.trim()
+          if (name && name !== this.editingName) await renameUniverse(this.editingId, name)
+        } else {
+          await createUniverse({ name: this.form.name.trim(), market: this.form.market, universeType: 'manual', members })
+        }
         this.$message.success(this.t('universeManager.saved'))
         this.editorVisible = false
         this.resetForm()
@@ -223,6 +246,7 @@ memberPageSize: 50
       try {
         const payload = this.unwrap(await getUniverseMembers(item.id)) || {}
         this.editingId = item.id
+        this.editingName = item.name || item.code
         this.form.name = item.name || item.code
         this.form.market = item.market
         this.form.memberText = (payload.members || []).map(member => item.market === 'Mixed' ? `${member.market}:${member.symbol}` : member.symbol).join('\n')
@@ -242,12 +266,22 @@ memberPageSize: 50
         await this.loadUniverses()
       } catch (error) { this.$message.error(error.backendMessage || error.message || this.t('universeManager.copyFailed')) } finally { this.cloningId = 0 }
     },
-    resetForm () { this.editingId = 0; this.form = { name: '', market: 'USStock', memberText: '' } }
+    async remove (item) {
+      this.deletingId = item.id
+      try {
+        await deleteUniverse(item.id)
+        this.$message.success(this.t('universeManager.deleted'))
+        await this.loadUniverses()
+      } catch (error) { this.$message.error(error.backendMessage || error.message || this.t('universeManager.deleteFailed')) } finally { this.deletingId = 0 }
+    },
+    resetForm () { this.editingId = 0; this.editingName = ''; this.form = { name: '', market: 'USStock', memberText: '' } }
   }
 }
 </script>
 
 <style lang="less" scoped>
 .member-pagination{margin-top:14px;text-align:right}
+.pool-code{display:block;overflow:hidden;margin-top:9px;color:#8592a3;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.theme-dark .pool-code{color:#7c8794}
 .universe-page{min-height:calc(100vh - 64px);padding:20px;background:#f4f6f8;color:#1f2933}.page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:16px}.kicker{color:#52c41a;font-size:12px;font-weight:800;text-transform:uppercase}.page-header h1{margin:3px 0 4px;font-size:28px}.page-header p{margin:0;color:#667085}.header-actions{display:flex;gap:8px}.summary-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}.summary-card{display:flex;flex-direction:column;gap:5px;padding:15px 17px;border:1px solid #e5e7eb;border-radius:10px;background:#fff}.summary-card span{color:#667085;font-size:12px}.summary-card strong{font-size:23px}.summary-card .summary-date{font-size:18px}.workspace-card{min-height:480px;padding:0 18px 18px;border:1px solid #e5e7eb;border-radius:10px;background:#fff}.toolbar{display:flex;gap:10px;margin-bottom:14px}.toolbar .ant-input-search{max-width:360px}.toolbar .ant-select{width:180px}.catalog-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.universe-item{display:flex;min-height:190px;flex-direction:column;padding:15px;border:1px solid #e5e7eb;border-radius:10px;transition:border-color .2s,transform .2s}.universe-item:hover{border-color:#52c41a;transform:translateY(-1px)}.item-topline{display:flex;align-items:center;gap:10px}.universe-icon{display:flex;width:38px;height:38px;align-items:center;justify-content:center;border-radius:9px;background:#edf7e8;color:#52c41a;font-size:17px}.market-crypto{background:#fff5e6;color:#fa8c16}.market-hkstock{background:#fff0f6;color:#eb2f96}.market-usstock{background:#eaf3ff;color:#1677ff}.item-title{display:flex;min-width:0;flex:1;flex-direction:column}.item-title strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.item-title span{color:#667085;font-size:12px}.item-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:17px 0}.item-stats>div{display:flex;flex-direction:column;padding:9px;border-radius:7px;background:#f7f8fa}.item-stats span{color:#667085;font-size:11px}.item-stats strong{margin-top:2px;font-size:15px}.item-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}.field-label{display:block;margin:14px 0 6px;font-weight:700}.full-width{width:100%}.field-hint{display:block;margin-top:6px;color:#98a2b3}.drawer-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px}.drawer-toolbar .ant-input-search{max-width:360px}.member-table-wrap{overflow:auto;border:1px solid #e5e7eb;border-radius:8px}.member-table{width:100%;border-collapse:collapse}.member-table th,.member-table td{padding:10px 12px;border-bottom:1px solid #edf0f3;text-align:left}.member-table th{background:#f7f8fa;color:#667085;font-size:12px}.theme-dark{background:#0b0b0b;color:#f5f5f5}.theme-dark h1{color:#f5f5f5}.theme-dark .summary-card,.theme-dark .workspace-card{border-color:#2b2b2b;background:#151515}.theme-dark .summary-card span,.theme-dark .page-header p,.theme-dark .item-title span,.theme-dark .item-stats span{color:#a7a7a7}.theme-dark .universe-item{border-color:#2b2b2b}.theme-dark .item-stats>div{background:#1d1d1d}.theme-dark .member-table-wrap{border-color:#303030}.theme-dark .member-table th{background:#1d1d1d}.theme-dark .member-table th,.theme-dark .member-table td{border-color:#303030}@media(max-width:1200px){.catalog-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:760px){.universe-page{padding:14px}.page-header{flex-direction:column}.summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}.catalog-grid{grid-template-columns:1fr}.toolbar{flex-direction:column}.toolbar .ant-input-search,.toolbar .ant-select{width:100%;max-width:none}}
 </style>

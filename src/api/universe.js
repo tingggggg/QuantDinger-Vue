@@ -8,6 +8,16 @@ export function createUniverse (data) {
   return request({ url: '/api/universes', method: 'post', data })
 }
 
+export function renameUniverse (universeId, name) {
+  return request({ url: `/api/universes/${universeId}`, method: 'patch', data: { name } })
+}
+
+// Retires the list rather than erasing it: the members stay so past backtests
+// can still say what they ran against, but it stops appearing in the picker.
+export function deleteUniverse (universeId) {
+  return request({ url: `/api/universes/${universeId}`, method: 'delete' })
+}
+
 export function getUniverseMembers (universeId, params = {}) {
   return request({ url: `/api/universes/${universeId}/members`, method: 'get', params })
 }

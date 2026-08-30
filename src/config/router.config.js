@@ -58,7 +58,6 @@ export const asyncRouterMap = [
         path: '/universe-manager',
         name: 'UniverseManager',
         component: () => import('@/views/universe-manager'),
-        hidden: true,
         meta: { title: 'menu.dashboard.universeManager', keepAlive: true, icon: 'database', permission: ['dashboard'] }
       },
       // Broker accounts.
