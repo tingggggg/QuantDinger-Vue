@@ -37,6 +37,13 @@ test('robot configuration keeps high-frequency choices in compact horizontal con
   assert.match(builderSource, /grid-template-columns: minmax\(430px, 480px\) minmax\(0, 1fr\)/)
 })
 
+test('all robot types open advanced settings by default and use neutral risk surfaces', () => {
+  assert.match(builderSource, /class="advanced-collapse"[^>]*default-active-key="advanced"/)
+  assert.match(builderSource, /\.theme-dark \.equity-risk-card \{[\s\S]*?background: #111315/)
+  assert.match(builderSource, /\.theme-dark \.trigger-contract-card \{[\s\S]*?background: #111315/)
+  assert.doesNotMatch(builderSource, /\.theme-dark \.equity-risk-card \{[\s\S]*?background: #102a43/)
+})
+
 test('generated robot metadata is preserved for save, backtest and live deployment', () => {
   assert.match(strategyIdeSource, /this\.scriptTemplateKey = generated\.template_key \|\| ''/)
   assert.match(strategyIdeSource, /robot_compatibility: generated\.compatibility \|\| \{\}/)

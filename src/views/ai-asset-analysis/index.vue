@@ -35,17 +35,17 @@
             <!-- Metrics row -->
             <div class="rc-metrics">
               <div class="rc-metric">
-                <span class="rc-metric-label">{{ ($i18n && $i18n.locale === 'zh-CN') ? '当前价格' : 'Price' }}</span>
+                <span class="rc-metric-label">{{ $t('aiAssetAnalysis.opportunities.currentPrice') }}</span>
                 <span class="rc-metric-value">${{ formatOppPrice(opp.price) }}</span>
               </div>
               <div class="rc-metric">
-                <span class="rc-metric-label">{{ ($i18n && $i18n.locale === 'zh-CN') ? '24h涨跌' : '24h Change' }}</span>
+                <span class="rc-metric-label">{{ $t('aiAssetAnalysis.opportunities.change24h') }}</span>
                 <span class="rc-metric-value" :class="opp.change_24h >= 0 ? 'rc-up' : 'rc-down'">
                   {{ opp.change_24h >= 0 ? '+' : '' }}{{ (opp.change_24h || 0).toFixed(2) }}%
                 </span>
               </div>
               <div class="rc-metric">
-                <span class="rc-metric-label">{{ ($i18n && $i18n.locale === 'zh-CN') ? '信号' : 'Signal' }}</span>
+                <span class="rc-metric-label">{{ $t('aiAssetAnalysis.opportunities.signal') }}</span>
                 <span class="rc-metric-value rc-signal-val" :class="'rc-signal-' + (opp.signal || '')">
                   {{ getSignalLabel(opp.signal) }}
                 </span>

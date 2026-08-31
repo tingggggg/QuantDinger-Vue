@@ -907,7 +907,7 @@
             <div class="summary-info">
               <div class="summary-value">{{ (aiStatsSummary.total_analyses || 0) + (aiStatsSummary.total_copilot_sessions || 0) }}</div>
               <div class="summary-label">{{ $t('adminAiStats.aiActivity') || 'AI Activity' }}</div>
-              <div class="summary-sub">{{ aiStatsSummary.total_analyses || 0 }} {{ isZh ? '份报告' : 'reports' }} / {{ aiStatsSummary.total_copilot_sessions || 0 }} {{ isZh ? '个会话' : 'chats' }}</div>
+              <div class="summary-sub">{{ $t('adminAiStats.reportCount', { count: aiStatsSummary.total_analyses || 0 }) }} / {{ $t('adminAiStats.chatCount', { count: aiStatsSummary.total_copilot_sessions || 0 }) }}</div>
             </div>
           </div>
           <div class="summary-card">
@@ -917,7 +917,7 @@
             <div class="summary-info">
               <div class="summary-value">{{ Math.max(aiStatsSummary.unique_users || 0, aiStatsSummary.unique_chat_users || 0) }}</div>
               <div class="summary-label">{{ $t('adminAiStats.activeUsers') || 'Active Users' }}</div>
-              <div class="summary-sub">{{ aiStatsSummary.unique_chat_users || 0 }} {{ isZh ? '名 Copilot 用户' : 'Copilot users' }}</div>
+              <div class="summary-sub">{{ $t('adminAiStats.copilotUserCount', { count: aiStatsSummary.unique_chat_users || 0 }) }}</div>
             </div>
           </div>
           <div class="summary-card">
@@ -2399,14 +2399,13 @@ export default {
       const min = Math.floor(diffSec / 60)
       const hr = Math.floor(min / 60)
       const day = Math.floor(hr / 24)
-      const isZh = String(this.$i18n?.locale || '').toLowerCase().startsWith('zh')
-      const suffix = future
-        ? (isZh ? '后' : ' left')
-        : (isZh ? '前' : ' ago')
-      if (day > 0) return `${day}${isZh ? '天' : 'd'}${suffix}`
-      if (hr > 0) return `${hr}${isZh ? '小时' : 'h'}${suffix}`
-      if (min > 0) return `${min}${isZh ? '分' : 'm'}${suffix}`
-      return isZh ? '刚刚' : 'just now'
+      const locale = String(this.$i18n?.locale || 'en-US')
+      const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+      const direction = future ? 1 : -1
+      if (day > 0) return formatter.format(direction * day, 'day')
+      if (hr > 0) return formatter.format(direction * hr, 'hour')
+      if (min > 0) return formatter.format(direction * min, 'minute')
+      return formatter.format(0, 'second')
     },
 
     formatNumber (num) {

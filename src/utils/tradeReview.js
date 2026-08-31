@@ -43,6 +43,10 @@ export const calculateTradeValueUsd = (trade = {}) => {
   return Math.abs(quantity * entryPrice)
 }
 
+export const normalizeTradeReviewSymbol = (value) => {
+  return String(value || '').trim().replace(/::(?:long|short)$/i, '')
+}
+
 export const resolveTradeReviewTimeframe = (trade = {}, timeframeValue = '1D', maxBars = 1000) => {
   const requested = normalizeReviewTimeframe(timeframeValue)
   const startIndex = REVIEW_TIMEFRAMES.indexOf(requested)
@@ -77,9 +81,38 @@ export const buildTradeReviewWindow = (trade = {}, timeframeValue = '1D') => {
   const tradeBars = Math.max(1, Math.ceil((end - start) / interval) + 1)
   const paddingBars = clamp(Math.ceil(tradeBars * 0.75), 60, 180)
   const limit = clamp(tradeBars + paddingBars * 2, 180, 1000)
-  const beforeTime = Math.floor((end + paddingBars * interval) / 1000)
+  const now = Date.now()
+  const latestWindowStart = now - limit * interval
+  const latestWindowEnd = now + interval
+  // Recent reviews can reuse the normal "latest candles" cache. Supplying a
+  // historical cursor here creates a one-off cache key and needlessly forces a
+  // slower exchange request even though the requested range is already covered.
+  const isCoveredByLatestWindow = start >= latestWindowStart && end <= latestWindowEnd
+  const beforeTime = isCoveredByLatestWindow
+    ? null
+    : Math.floor((end + paddingBars * interval) / 1000)
 
   return { beforeTime, limit, entryTime, exitTime }
+}
+
+export const buildAggregateTradeReview = (trades = [], timeframeValue = '1D', maxBars = 1000) => {
+  const validTrades = (Array.isArray(trades) ? trades : []).filter(trade => {
+    return timestampMillisecondsUtc(trade && trade.entry_time) !== null &&
+      timestampMillisecondsUtc(trade && trade.exit_time) !== null
+  })
+  if (!validTrades.length) {
+    const timeframe = normalizeReviewTimeframe(timeframeValue)
+    return { rangeTrade: {}, timeframe, window: buildTradeReviewWindow({}, timeframe) }
+  }
+
+  const entryTime = Math.min(...validTrades.map(trade => timestampMillisecondsUtc(trade.entry_time)))
+  const exitTime = Math.max(...validTrades.map(trade => timestampMillisecondsUtc(trade.exit_time)))
+  const rangeTrade = {
+    entry_time: new Date(entryTime).toISOString(),
+    exit_time: new Date(exitTime).toISOString()
+  }
+  const timeframe = resolveTradeReviewTimeframe(rangeTrade, timeframeValue, maxBars)
+  return { rangeTrade, timeframe, window: buildTradeReviewWindow(rangeTrade, timeframe) }
 }
 
 export const findNearestBarIndex = (rows, targetTimestamp) => {

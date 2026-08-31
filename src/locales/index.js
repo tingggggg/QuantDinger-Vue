@@ -11,6 +11,9 @@ import strategyLiveRiskMessages from './lang/strategy-live-risk'
 import robotBuilderMessages from './lang/robot-builder-overrides'
 import strategyTradeRecordMessages from './lang/strategy-trade-records'
 import generatedLocaleOverrides from './generated-locale-overrides'
+import uxOverrides from './ux-overrides'
+import copilotCallsiteOverrides from './copilot-callsite-overrides'
+import reviewedUiOverrides from './reviewed-ui-overrides'
 
 Vue.use(VueI18n)
 
@@ -26,7 +29,10 @@ const messages = {
     ...(strategyLiveRiskMessages[defaultLang] || {}),
     ...(robotBuilderMessages[defaultLang] || {}),
     ...(strategyTradeRecordMessages[defaultLang] || {}),
-    ...(generatedLocaleOverrides[defaultLang] || {})
+    ...(uxOverrides[defaultLang] || {}),
+    ...(copilotCallsiteOverrides[defaultLang] || {}),
+    ...(generatedLocaleOverrides[defaultLang] || {}),
+    ...(reviewedUiOverrides[defaultLang] || {})
   }
 }
 
@@ -101,7 +107,10 @@ function mergeLocaleOverrides (lang) {
     ...(strategyLiveRiskMessages[lang] || {}),
     ...(robotBuilderMessages[lang] || {}),
     ...(strategyTradeRecordMessages[lang] || {}),
-    ...(generatedLocaleOverrides[lang] || {})
+    ...(uxOverrides[lang] || {}),
+    ...(copilotCallsiteOverrides[lang] || {}),
+    ...(generatedLocaleOverrides[lang] || {}),
+    ...(reviewedUiOverrides[lang] || {})
   }
   i18n.setLocaleMessage(lang, {
     ...(i18n.getLocaleMessage(lang) || {}),
@@ -129,7 +138,10 @@ export async function loadLanguageAsync (lang = defaultLang) {
       ...(strategyLiveRiskMessages[lang] || {}),
       ...(robotBuilderMessages[lang] || {}),
       ...(strategyTradeRecordMessages[lang] || {}),
-      ...(generatedLocaleOverrides[lang] || {})
+      ...(uxOverrides[lang] || {}),
+      ...(copilotCallsiteOverrides[lang] || {}),
+      ...(generatedLocaleOverrides[lang] || {}),
+      ...(reviewedUiOverrides[lang] || {})
     })
     i18n.setLocaleMessage(lang, locale)
     loadedLanguages.push(lang)

@@ -14,6 +14,9 @@ const marketApi = {
   DeleteChatSession: '/api/ai/chat/sessions',
   SaveChatHistory: '/api/ai/chat/history/save',
   SaveCopilotMessage: '/api/ai/chat/message/local',
+  PromptLibrary: '/api/ai/prompt-library',
+  CopilotEvents: '/api/ai/events',
+  CopilotEventSummary: '/api/ai/events/summary',
   AgentPreflight: '/api/ai/agent/preflight',
   AgentIntent: '/api/ai/agent/intent',
   AiSkills: '/api/ai/skills',
@@ -121,6 +124,44 @@ export function saveCopilotMessage (parameter) {
   })
 }
 
+export function getSavedPrompts (parameter) {
+  return request({
+    url: marketApi.PromptLibrary,
+    method: 'get',
+    params: parameter
+  })
+}
+
+export function savePrompt (parameter) {
+  return request({
+    url: marketApi.PromptLibrary,
+    method: 'post',
+    data: parameter
+  })
+}
+
+export function deleteSavedPrompt (promptId) {
+  return request({
+    url: `${marketApi.PromptLibrary}/${promptId}`,
+    method: 'delete'
+  })
+}
+
+export function trackCopilotEvent (parameter) {
+  return request({
+    url: marketApi.CopilotEvents,
+    method: 'post',
+    data: parameter
+  })
+}
+
+export function getCopilotEventSummary () {
+  return request({
+    url: marketApi.CopilotEventSummary,
+    method: 'get'
+  })
+}
+
 export function getAgentPreflight () {
   return request({
     url: marketApi.AgentPreflight,
@@ -201,6 +242,28 @@ export function saveUserMemory (parameter) {
 export function deleteUserMemory (memoryId) {
   return request({
     url: `${marketApi.UserMemory}/${memoryId}`,
+    method: 'delete'
+  })
+}
+
+export function updateUserMemory (memoryId, parameter) {
+  return request({
+    url: `${marketApi.UserMemory}/${memoryId}`,
+    method: 'patch',
+    data: parameter
+  })
+}
+
+export function getChatSessionMemory (sessionId) {
+  return request({
+    url: `${marketApi.GetChatSessions}/${sessionId}/memory`,
+    method: 'get'
+  })
+}
+
+export function clearChatSessionMemory (sessionId) {
+  return request({
+    url: `${marketApi.GetChatSessions}/${sessionId}/memory`,
     method: 'delete'
   })
 }

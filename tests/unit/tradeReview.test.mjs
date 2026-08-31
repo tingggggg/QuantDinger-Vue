@@ -2,10 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildAggregateTradeReview,
   buildTradeReviewWindow,
   calculateTradeValueUsd,
   findNearestBarIndex,
   normalizeReviewTimeframe,
+  normalizeTradeReviewSymbol,
   resolveTradeReviewTimeframe
 } from '../../src/utils/tradeReview.js'
 
@@ -23,6 +25,12 @@ test('calculates opening USD value from quantity and entry price', () => {
   assert.equal(calculateTradeValueUsd({ value_usd: 350, quantity: 2, entry_price: 100 }), 350)
 })
 
+test('maps hedged position legs back to the market-data instrument', () => {
+  assert.equal(normalizeTradeReviewSymbol('Crypto:SOL/USDT@swap::long'), 'Crypto:SOL/USDT@swap')
+  assert.equal(normalizeTradeReviewSymbol('Crypto:BTC/USDT@okx:swap::short'), 'Crypto:BTC/USDT@okx:swap')
+  assert.equal(normalizeTradeReviewSymbol('Crypto:SOL/USDT@swap'), 'Crypto:SOL/USDT@swap')
+})
+
 test('builds a bounded historical window around the selected trade', () => {
   const trade = {
     entry_time: '2026-07-18T00:07:00Z',
@@ -34,6 +42,17 @@ test('builds a bounded historical window around the selected trade', () => {
   assert.equal(result.exitTime, Date.parse(trade.exit_time))
   assert.ok(result.beforeTime > result.exitTime / 1000)
   assert.ok(result.limit >= 180)
+  assert.ok(result.limit <= 1000)
+})
+
+test('reuses the latest candle window for a recent trade range', () => {
+  const now = Date.now()
+  const result = buildTradeReviewWindow({
+    entry_time: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    exit_time: new Date(now - 24 * 60 * 60 * 1000).toISOString()
+  }, '15m')
+
+  assert.equal(result.beforeTime, null)
   assert.ok(result.limit <= 1000)
 })
 
@@ -63,4 +82,16 @@ test('finds the closest loaded candle for an execution timestamp', () => {
   const rows = [{ timestamp: 1000 }, { timestamp: 2000 }, { timestamp: 3000 }]
   assert.equal(findNearestBarIndex(rows, 2200), 1)
   assert.equal(findNearestBarIndex([], 2200), -1)
+})
+
+test('aggregates a month of minute trades into a bounded overview window', () => {
+  const result = buildAggregateTradeReview([
+    { entry_time: '2026-07-01T00:01:00Z', exit_time: '2026-07-01T00:12:00Z' },
+    { entry_time: '2026-07-29T23:40:00Z', exit_time: '2026-07-29T23:58:00Z' }
+  ], '1m')
+
+  assert.equal(result.timeframe, '4H')
+  assert.equal(result.window.entryTime, Date.parse('2026-07-01T00:01:00Z'))
+  assert.equal(result.window.exitTime, Date.parse('2026-07-29T23:58:00Z'))
+  assert.ok(result.window.limit <= 1000)
 })

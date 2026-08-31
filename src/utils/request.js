@@ -129,7 +129,19 @@ function normalizeInsufficientCreditsError (error) {
   )
 }
 
+function normalizePublishBacktestRequiredError (error) {
+  const envelope = error && error.response && error.response.data
+  const details = envelope && envelope.data
+  if (!details || !(details.requires_backtest || details.error_type === 'BACKTEST_REQUIRED')) return ''
+  return tt(
+    'strategyIde.publishBacktestRequired',
+    'Run at least one successful backtest before publishing.'
+  )
+}
+
 function normalizeBusinessErrorMessage (message, error) {
+  const publishBacktestRequired = normalizePublishBacktestRequiredError(error)
+  if (publishBacktestRequired) return publishBacktestRequired
   const backtestRangeLimit = normalizeBacktestRangeLimitError(error)
   if (backtestRangeLimit) return backtestRangeLimit
   const insufficientCredits = normalizeInsufficientCreditsError(error)

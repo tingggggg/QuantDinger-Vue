@@ -23,3 +23,14 @@ test('live strategy direction is contract-driven with a legacy fallback', () => 
   assert.match(source, /directionMode: this\.requiresDirectionMode \? this\.effectiveDirectionMode/)
   assert.doesNotMatch(source, /v-model="model\.positionSide"/)
 })
+
+test('live eligibility follows the manifest market instead of the strategy shape', () => {
+  assert.match(source, /supportsLiveExecutionMode\(this\.strategyManifest\)/)
+  assert.match(source, /credentialMatchesLiveStrategy\(this\.strategyManifest, credential\.exchange_id\)/)
+  assert.doesNotMatch(source, /if \(this\.isPortfolioStrategy\) return exchange === 'alpaca'/)
+})
+
+test('source changes clear an incompatible saved credential before submission', () => {
+  assert.match(source, /this\.compatibleCredentials\.some\(item => String\(item\.id\) === String\(this\.model\.credentialId\)\)/)
+  assert.match(source, /this\.model\.credentialId = undefined/)
+})

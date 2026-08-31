@@ -59,8 +59,8 @@
         :sub-title="error"
       >
         <template #extra>
-          <a-button type="primary" @click="$emit('retry')">
-            {{ $t('fastAnalysis.retry') }}
+          <a-button type="primary" @click="handleErrorAction">
+            {{ insufficientCreditsError ? $t('fastAnalysis.rechargeNow') : $t('fastAnalysis.retry') }}
           </a-button>
         </template>
       </a-result>
@@ -109,7 +109,7 @@
           <div class="consensus-strip-metrics">
             <span class="cm-item">
               <em>{{ $t('fastAnalysis.consensusDecision') }}</em>
-              {{ formatDecisionLabel(consensusBlock.consensus_decision) }}
+              {{ formatDecisionLabel(consensusBlock.consensus_decision, consensusBlock.directional_bias, consensusBlock.consensus_score) }}
             </span>
             <span class="cm-item">
               <em>{{ $t('fastAnalysis.consensusScore') }}</em>
@@ -140,6 +140,19 @@
         <div class="perf-item" v-if="performanceStats.avg_return != null">
           <span class="perf-value" :class="performanceStats.avg_return >= 0 ? 'positive' : 'negative'">{{ formatNumber(performanceStats.avg_return, 2) }}%</span>
           <span class="perf-label">{{ $t('fastAnalysis.avgReturn') || '平均收益' }}</span>
+        </div>
+      </div>
+      <div v-if="regimePerformanceRows.length" class="regime-performance">
+        <div class="regime-performance-title">
+          <a-icon type="area-chart" /> {{ $t('fastAnalysis.regimePerformanceTitle') }}
+        </div>
+        <div class="regime-performance-grid">
+          <div v-for="row in regimePerformanceRows" :key="row.market_regime" class="regime-performance-row">
+            <strong>{{ translateTrend(row.market_regime) }}</strong>
+            <span>B {{ row.decision_distribution.buy }} · S {{ row.decision_distribution.sell }} · H {{ row.decision_distribution.hold }}</span>
+            <span>{{ $t('fastAnalysis.accuracyRate') }} {{ formatNumber(row.accuracy_pct, 1) }}%</span>
+            <span :class="row.avg_return_pct >= 0 ? 'positive' : 'negative'">{{ $t('fastAnalysis.avgReturn') }} {{ formatNumber(row.avg_return_pct, 2) }}%</span>
+          </div>
         </div>
       </div>
 
@@ -175,8 +188,21 @@
               </a-tooltip>
             </div>
           </div>
+          <div v-if="tradingPlan.risk_reward_ratio != null" class="price-card rr" :class="{ 'rr-low': hasLowRiskReward }">
+            <div class="price-label">{{ $t('fastAnalysis.riskReward') }}</div>
+            <div class="price-value">1 : {{ formatNumber(tradingPlan.risk_reward_ratio, 2) }}</div>
+            <div class="price-hint">{{ $t('fastAnalysis.finalPlanRatio') }}</div>
+          </div>
         </template>
       </div>
+      <a-alert
+        v-if="hasLowRiskReward"
+        class="rr-warning-alert"
+        type="warning"
+        show-icon
+        :message="$t('fastAnalysis.rrWarningTitle')"
+        :description="$t('fastAnalysis.rrWarningDescription')"
+      />
 
       <div v-if="trendOutlookBlocks.length || trendOutlookSummaryText" class="trend-outlook-card">
         <div class="trend-outlook-header section-clickable" @click="toggleSection('trendOutlook')">
@@ -192,7 +218,7 @@
             <div v-for="row in trendOutlookBlocks" :key="row.key" class="trend-outlook-item">
               <div class="to-label">{{ row.label }}</div>
               <div class="to-trend" :class="outlookTrendClass(row.trend)">
-                {{ formatOutlookTrend(row.trend) }}
+                {{ formatOutlookTrend(row.trend, row.bias, row.score) }}
               </div>
               <div class="to-meta">
                 <span class="to-score">{{ row.score != null ? row.score : '--' }}</span>
@@ -252,14 +278,14 @@
         <div class="report-section-header" @click="toggleSection('cryptoFactors')">
           <span class="rsh-title">
             <a-icon type="fund" />
-            {{ ($i18n && $i18n.locale === 'zh-CN') ? 'Crypto 交易大数据' : 'Crypto Market Structure' }}
+            {{ $t('fastAnalysis.cryptoMarketStructure') }}
           </span>
           <a-icon type="right" class="section-toggle-arrow" :class="{ open: !sectionCollapsed.cryptoFactors }" />
         </div>
         <div v-show="!sectionCollapsed.cryptoFactors">
           <div class="crypto-factor-summary">
             <div class="crypto-factor-score" :class="cryptoFactorScoreClass">
-              {{ ($i18n && $i18n.locale === 'zh-CN') ? '因子偏向' : 'Factor Bias' }}:
+              {{ $t('fastAnalysis.factorBias') }}:
               <strong>{{ cryptoFactorScoreText }}</strong>
               <span v-if="result.crypto_factor_score !== undefined && result.crypto_factor_score !== null" class="crypto-factor-score__num">
                 {{ formatNumber(result.crypto_factor_score, 1) }}
@@ -428,7 +454,7 @@
             <div v-if="professionalIndicatorRows.length" class="indicators-pro-wrap">
               <div class="indicators-pro-title">
                 <a-icon type="deployment-unit" />
-                {{ ($i18n && $i18n.locale === 'zh-CN') ? '量化参数明细' : 'Quant Parameters' }}
+                {{ $t('fastAnalysis.quantParameters') }}
               </div>
               <a-descriptions
                 bordered
@@ -484,6 +510,7 @@
 <script>
 import { mapState } from 'vuex'
 import { submitFeedback as submitFeedbackApi, getPerformanceStats } from '@/api/fast-analysis'
+import { resolveDecisionLabelKey } from '@/utils/fastAnalysisPresentation'
 
 export default {
   name: 'FastAnalysisReport',
@@ -565,7 +592,11 @@ export default {
       return String(this.result?.market || '').toLowerCase() === 'crypto'
     },
     decisionDisplayText () {
-      return this.formatDecisionLabel(this.result?.decision)
+      return this.formatDecisionLabel(
+        this.result?.decision,
+        this.result?.outlook_bias,
+        this.result?.consensus?.consensus_score
+      )
     },
     displaySummary () {
       return this.neutralizeDecisionText(this.result?.summary || '')
@@ -596,6 +627,10 @@ export default {
       if (c.consensus_decision == null && c.consensus_score == null) return null
       return c
     },
+    regimePerformanceRows () {
+      const rows = this.performanceStats?.regime_performance
+      return Array.isArray(rows) ? rows.filter(row => row && row.total > 0) : []
+    },
     tradingPlan () {
       const tp = this.result?.trading_plan || {}
       const entry = tp.entry_price ?? tp.entryPrice
@@ -604,8 +639,15 @@ export default {
       return {
         entry_price: entry,
         stop_loss: sl,
-        take_profit: tpv
+        take_profit: tpv,
+        risk_reward_ratio: tp.risk_reward_ratio ?? tp.riskRewardRatio,
+        rr_warning: tp.rr_warning ?? tp.rrWarning,
+        source: tp.source
       }
+    },
+    hasLowRiskReward () {
+      const rr = Number(this.tradingPlan.risk_reward_ratio)
+      return Boolean(this.tradingPlan.rr_warning) || (Number.isFinite(rr) && rr >= 0 && rr < 1)
     },
     trendOutlookRaw () {
       return this.result?.trend_outlook || this.result?.trendOutlook || null
@@ -629,6 +671,7 @@ export default {
           key,
           label: this.$t(labelKey),
           trend: block.trend,
+          bias: block.bias,
           score: block.score,
           strength: block.strength
         }
@@ -724,42 +767,39 @@ export default {
         const num = parseFloat(val)
         return isNaN(num) ? '--' : `${num.toFixed(2)}%`
       }
-      const localZh = this.$i18n && this.$i18n.locale === 'zh-CN'
-
-      add('volume_24h', localZh ? '24h成交额' : '24h Volume', usd(cf.volume_24h))
-      add('volume_change_24h', localZh ? '成交活跃度变化' : 'Volume Activity Change', pct(cf.volume_change_24h), Number(cf.volume_change_24h) > 0 ? 'bullish' : (Number(cf.volume_change_24h) < 0 ? 'bearish' : ''))
-      add('funding_rate', localZh ? '资金费率' : 'Funding Rate', pct(cf.funding_rate), Number(cf.funding_rate) > 0 ? 'bullish' : (Number(cf.funding_rate) < 0 ? 'bearish' : ''))
-      add('open_interest', localZh ? '未平仓量 OI' : 'Open Interest', usd(cf.open_interest))
-      add('open_interest_change_24h', localZh ? 'OI变化(24h)' : 'OI Change (24h)', pct(cf.open_interest_change_24h), Number(cf.open_interest_change_24h) > 0 ? 'bullish' : (Number(cf.open_interest_change_24h) < 0 ? 'bearish' : ''))
-      add('long_short_ratio', localZh ? '多空比' : 'Long / Short Ratio', this.formatCompactNum(cf.long_short_ratio))
-      add('exchange_netflow', localZh ? '交易所净流' : 'Exchange Netflow', usd(cf.exchange_netflow), Number(cf.exchange_netflow) < 0 ? 'bullish' : (Number(cf.exchange_netflow) > 0 ? 'bearish' : ''))
-      add('stablecoin_netflow', localZh ? '稳定币净流' : 'Stablecoin Netflow', usd(cf.stablecoin_netflow), Number(cf.stablecoin_netflow) > 0 ? 'bullish' : (Number(cf.stablecoin_netflow) < 0 ? 'bearish' : ''))
+      add('volume_24h', this.$t('fastAnalysis.cryptoVolume24h'), usd(cf.volume_24h))
+      add('volume_change_24h', this.$t('fastAnalysis.cryptoVolumeActivityChange'), pct(cf.volume_change_24h), Number(cf.volume_change_24h) > 0 ? 'bullish' : (Number(cf.volume_change_24h) < 0 ? 'bearish' : ''))
+      add('funding_rate', this.$t('fastAnalysis.cryptoFundingRate'), pct(cf.funding_rate), Number(cf.funding_rate) > 0 ? 'bullish' : (Number(cf.funding_rate) < 0 ? 'bearish' : ''))
+      add('open_interest', this.$t('fastAnalysis.cryptoOpenInterest'), usd(cf.open_interest))
+      add('open_interest_change_24h', this.$t('fastAnalysis.cryptoOpenInterestChange'), pct(cf.open_interest_change_24h), Number(cf.open_interest_change_24h) > 0 ? 'bullish' : (Number(cf.open_interest_change_24h) < 0 ? 'bearish' : ''))
+      add('long_short_ratio', this.$t('fastAnalysis.cryptoLongShortRatio'), this.formatCompactNum(cf.long_short_ratio))
+      add('exchange_netflow', this.$t('fastAnalysis.cryptoExchangeNetflow'), usd(cf.exchange_netflow), Number(cf.exchange_netflow) < 0 ? 'bullish' : (Number(cf.exchange_netflow) > 0 ? 'bearish' : ''))
+      add('stablecoin_netflow', this.$t('fastAnalysis.cryptoStablecoinNetflow'), usd(cf.stablecoin_netflow), Number(cf.stablecoin_netflow) > 0 ? 'bullish' : (Number(cf.stablecoin_netflow) < 0 ? 'bearish' : ''))
       return rows
     },
     cryptoSignals () {
       if (!this.isCryptoResult) return []
       const sig = (this.result?.crypto_factors || {}).signals || {}
-      const localZh = this.$i18n && this.$i18n.locale === 'zh-CN'
       const items = []
       if (sig.derivatives_bias) {
         items.push({
           key: 'derivatives_bias',
           color: sig.derivatives_bias === 'bullish' ? 'green' : (sig.derivatives_bias === 'bearish' ? 'red' : 'blue'),
-          label: `${localZh ? '衍生品' : 'Derivatives'}: ${sig.derivatives_bias}`
+          label: `${this.$t('fastAnalysis.cryptoDerivatives')}: ${this.cryptoSignalValueLabel(sig.derivatives_bias)}`
         })
       }
       if (sig.flow_bias) {
         items.push({
           key: 'flow_bias',
           color: sig.flow_bias === 'bullish' ? 'green' : (sig.flow_bias === 'bearish' ? 'red' : 'blue'),
-          label: `${localZh ? '资金流' : 'Flow'}: ${sig.flow_bias}`
+          label: `${this.$t('fastAnalysis.cryptoFlow')}: ${this.cryptoSignalValueLabel(sig.flow_bias)}`
         })
       }
       if (sig.squeeze_risk) {
         items.push({
           key: 'squeeze_risk',
           color: sig.squeeze_risk === 'high' ? 'red' : (sig.squeeze_risk === 'medium' ? 'orange' : 'green'),
-          label: `${localZh ? '挤仓风险' : 'Squeeze Risk'}: ${sig.squeeze_risk}`
+          label: `${this.$t('fastAnalysis.cryptoSqueezeRisk')}: ${this.cryptoSignalValueLabel(sig.squeeze_risk)}`
         })
       }
       return items
@@ -773,13 +813,12 @@ export default {
     },
     cryptoFactorScoreText () {
       const score = Number(this.result?.crypto_factor_score)
-      const localZh = this.$i18n && this.$i18n.locale === 'zh-CN'
-      if (Number.isNaN(score)) return localZh ? '数据不足' : 'Insufficient data'
-      if (score >= 40) return localZh ? '明显偏多' : 'Bullish'
-      if (score >= 20) return localZh ? '轻度偏多' : 'Mild Bullish'
-      if (score <= -40) return localZh ? '明显偏空' : 'Bearish'
-      if (score <= -20) return localZh ? '轻度偏空' : 'Mild Bearish'
-      return localZh ? '中性' : 'Neutral'
+      if (Number.isNaN(score)) return this.$t('fastAnalysis.cryptoInsufficientData')
+      if (score >= 40) return this.$t('fastAnalysis.signalBullish')
+      if (score >= 20) return this.$t('fastAnalysis.cryptoMildBullish')
+      if (score <= -40) return this.$t('fastAnalysis.signalBearish')
+      if (score <= -20) return this.$t('fastAnalysis.cryptoMildBearish')
+      return this.$t('fastAnalysis.signalNeutral')
     },
     insufficientCreditsError () {
       if (!this.error) return false
@@ -823,6 +862,13 @@ export default {
     this.stopProgressTimer()
   },
   methods: {
+    handleErrorAction () {
+      if (this.insufficientCreditsError) {
+        this.$router.push({ name: 'Billing' }).catch(() => {})
+        return
+      }
+      this.$emit('retry')
+    },
     formatPrice (value) {
       if (value === undefined || value === null) return '--'
       const num = parseFloat(value)
@@ -853,11 +899,22 @@ export default {
       const num = parseFloat(value) || 0
       return num % 1 === 0 ? num.toFixed(0) : num.toFixed(1)
     },
-    formatDecisionLabel (decision) {
-      const d = String(decision || 'HOLD').toUpperCase()
-      if (d === 'BUY') return this.$t('fastAnalysis.outlookBull')
-      if (d === 'SELL') return this.$t('fastAnalysis.outlookBear')
-      return this.$t('fastAnalysis.outlookNeutral')
+    formatDecisionLabel (decision, bias, score) {
+      return this.$t(resolveDecisionLabelKey({ decision, bias, score }))
+    },
+    cryptoSignalValueLabel (value) {
+      const key = String(value || '').trim().toLowerCase()
+      const translationKeys = {
+        bullish: 'signalBullish',
+        bearish: 'signalBearish',
+        neutral: 'signalNeutral',
+        high: 'signalHigh',
+        medium: 'signalMedium',
+        low: 'signalLow'
+      }
+      return translationKeys[key]
+        ? this.$t(`fastAnalysis.${translationKeys[key]}`)
+        : String(value || '--')
     },
     neutralizeDecisionText (text) {
       if (text === undefined || text === null) return ''
@@ -875,8 +932,8 @@ export default {
         .replace(/\bSELL\b/gi, sell)
         .replace(/\bHOLD\b/gi, hold)
     },
-    formatOutlookTrend (trend) {
-      return this.formatDecisionLabel(trend)
+    formatOutlookTrend (trend, bias, score) {
+      return this.formatDecisionLabel(trend, bias, score)
     },
     outlookTrendClass (trend) {
       const t = String(trend || '').toUpperCase()
@@ -1137,6 +1194,33 @@ export default {
     }
   }
 
+  .regime-performance {
+    padding: 10px 14px 12px;
+    margin-bottom: 2px;
+    background: @rpt-surface;
+    border-top: 1px solid @rpt-border;
+
+    .regime-performance-title {
+      margin-bottom: 8px;
+      color: @rpt-text2;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .regime-performance-grid { display: grid; gap: 6px; }
+    .regime-performance-row {
+      display: grid;
+      grid-template-columns: minmax(110px, 1.2fr) minmax(110px, 1fr) minmax(100px, 1fr) minmax(110px, 1fr);
+      gap: 10px;
+      align-items: center;
+      color: @rpt-text2;
+      font-size: 11px;
+      strong { color: @rpt-text; }
+      .positive { color: @rpt-green; }
+      .negative { color: @rpt-red; }
+    }
+  }
+
   // ── Report Section (Collapsible) ──
   .report-section {
     background: @rpt-surface;
@@ -1229,7 +1313,7 @@ export default {
 
     // ─ Price Strip (no separate cards) ─
     .price-info-row {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
       background: @rpt-surface; margin-bottom: 2px;
 
       &.hold-mode { grid-template-columns: 1fr; }
@@ -1251,7 +1335,15 @@ export default {
         &.entry .price-label { color: var(--primary-color, #1890ff); }
         &.stop .price-label { color: @rpt-red; }
         &.target .price-label { color: @rpt-green; }
+        &.rr .price-label { color: var(--primary-color, #1890ff); }
+        &.rr-low { background: rgba(250, 173, 20, 0.08); .price-label, .price-value { color: @rpt-amber; } }
       }
+    }
+
+    .rr-warning-alert {
+      margin: 0 0 2px;
+      border-radius: 0;
+      border-left: 3px solid @rpt-amber;
     }
 
     // ─ Trend Outlook ─
@@ -1515,6 +1607,45 @@ export default {
 
   &::-webkit-scrollbar-thumb { background: #333; }
 
+  .rr-warning-alert {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.35);
+    border-left-color: @rpt-amber;
+
+    ::v-deep .ant-alert-icon { color: #fbbf24; }
+    ::v-deep .ant-alert-message { color: #fbbf24; }
+    ::v-deep .ant-alert-description { color: #c7c7ce; }
+  }
+
+  .crypto-factor-summary {
+    background: linear-gradient(135deg, rgba(24, 144, 255, 0.08), rgba(82, 196, 26, 0.05));
+    border-color: rgba(255, 255, 255, 0.16);
+
+    &__text { color: @dk-text2; }
+  }
+
+  .crypto-factor-score {
+    color: @dk-text;
+
+    &.bullish { color: #34d399; }
+    &.bearish { color: #f87171; }
+    &.neutral { color: #fbbf24; }
+
+    &__num { background: rgba(255, 255, 255, 0.08); }
+  }
+
+  .crypto-factor-item {
+    background: @dk-surface2;
+    border-color: @dk-border;
+
+    &__label, &__hint { color: @dk-text2; }
+    &__value {
+      color: @dk-text;
+      &.bullish { color: #34d399; }
+      &.bearish { color: #f87171; }
+    }
+  }
+
   .performance-strip {
     background: @dk-surface;
     .perf-item {
@@ -1522,6 +1653,13 @@ export default {
       .perf-value { color: #f0f0f2; &.positive { color: #34d399; } &.negative { color: #f87171; } }
       .perf-label { color: @dk-text3; }
     }
+  }
+
+  .regime-performance {
+    background: @dk-surface;
+    border-color: @dk-border;
+    .regime-performance-title, .regime-performance-row { color: @dk-text2; }
+    .regime-performance-row strong { color: @dk-text; }
   }
 
   .report-section { background: @dk-surface; }

@@ -149,20 +149,6 @@
           </div>
 
           <div class="section-title">{{ t('executorStrategies.section.capitalRisk') }}</div>
-          <div class="field-grid">
-            <div class="field-block">
-              <label>{{ t('executorStrategies.initialCapital') }}</label>
-              <a-input-number
-                v-model="form.initial_capital"
-                :min="10"
-                :max="1000000"
-                :step="100"
-                :precision="2"
-                style="width: 100%" />
-              <small class="field-hint">{{ t('executorStrategies.initialCapitalHint') }}</small>
-            </div>
-          </div>
-
           <div v-if="supportsTrailingTakeProfit" class="risk-scope-label">
             {{ t('executorStrategies.cycleRiskTitle') }}
             <small>{{ t('executorStrategies.cycleRiskHint') }}</small>
@@ -655,7 +641,7 @@
             </div>
           </div>
 
-          <a-collapse class="advanced-collapse" :bordered="false">
+          <a-collapse class="advanced-collapse" :bordered="false" default-active-key="advanced">
             <a-collapse-panel key="advanced" :header="t('executorStrategies.advanced')">
               <div class="field-grid">
                 <div v-if="!isDca" class="field-block">
@@ -911,8 +897,6 @@ export default {
     validationIssues () {
       const issues = []
       if (!String(this.form.symbol || '').trim()) issues.push('symbol')
-      const initialCapital = Number(this.form.initial_capital || 0)
-      if (initialCapital < 10 || initialCapital > 1000000) issues.push('initialCapital')
       if (this.form.executor_type === 'grid') {
         const start = Number(this.form.start_price || 0)
         const end = Number(this.form.end_price || 0)
@@ -1086,7 +1070,6 @@ export default {
         side: 'long',
         market_type: 'swap',
         execution_mode: 'signal',
-        initial_capital: 1000,
         dynamic_anchor: true,
         start_price: 0.98,
         end_price: 1.02,
@@ -1241,6 +1224,7 @@ export default {
         templateConfig.market_type = 'spot'
         templateConfig.timeframe = '1H'
       }
+      delete templateConfig.initial_capital
       delete templateConfig.leverage
       return {
         ...templateConfig,
@@ -1638,9 +1622,10 @@ export default {
   gap: 10px;
   margin: 10px 0 14px;
   padding: 12px;
-  border: 1px solid #bae0ff;
+  border: 1px solid #d8dee6;
   border-radius: 10px;
-  background: #f0f8ff;
+  background: #f8fafc;
+  box-shadow: inset 3px 0 0 rgba(82, 196, 26, 0.72);
 }
 
 .trigger-contract-card__icon {
@@ -1651,8 +1636,9 @@ export default {
   align-items: center;
   justify-content: center;
   border-radius: 9px;
-  color: #1677ff;
-  background: #e6f4ff;
+  border: 1px solid #d9edcf;
+  color: #389e0d;
+  background: #f0f8ec;
 }
 
 .trigger-contract-card strong { color: #1f2937; font-size: 13px; }
@@ -1691,14 +1677,15 @@ export default {
 }
 
 .equity-risk-card {
-  border-color: #91caff;
-  background: #e6f4ff;
+  border-color: #d8dee6;
+  background: #f8fafc;
+  box-shadow: inset 3px 0 0 rgba(82, 196, 26, 0.72);
 }
 
 .equity-trailing-toggle {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(22, 119, 255, 0.2);
+  border-top: 1px solid rgba(71, 84, 103, 0.18);
 }
 
 .martingale-budget-notice {
@@ -2000,13 +1987,19 @@ export default {
 }
 
 .theme-dark .equity-risk-card {
-  border-color: #164c7e;
-  background: #102a43;
+  border-color: #343a40;
+  background: #111315;
 }
 
 .theme-dark .trigger-contract-card {
-  border-color: #164c7e;
-  background: #102a43;
+  border-color: #343a40;
+  background: #111315;
+}
+
+.theme-dark .trigger-contract-card__icon {
+  border-color: #2f4b26;
+  color: #73d13d;
+  background: #1b2b18;
 }
 
 .theme-dark .trigger-contract-card strong { color: #f3f4f6; }

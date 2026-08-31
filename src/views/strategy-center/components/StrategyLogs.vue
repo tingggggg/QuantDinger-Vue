@@ -52,7 +52,23 @@
         >
           {{ getLevelText(log.level) }}
         </span>
-        <span class="log-message">{{ log.message }}</span>
+        <div v-if="isMarketDataError(log)" class="market-data-error">
+          <div class="market-data-error-head">
+            <a-icon :type="marketDataIcon(log)" />
+            <strong>{{ marketDataReasonLabel(log) }}</strong>
+            <span class="market-data-context">{{ marketDataContext(log) }}</span>
+          </div>
+          <div class="market-data-error-message">{{ log.message }}</div>
+          <div class="market-data-error-action">
+            <a-icon type="bulb" /> {{ marketDataAction(log) }}
+          </div>
+          <a-tooltip v-if="marketDataError(log).technical_detail" :title="marketDataError(log).technical_detail">
+            <span class="market-data-technical">
+              <a-icon type="code" /> {{ $t('trading-assistant.logs.marketData.technicalDetail') }}
+            </span>
+          </a-tooltip>
+        </div>
+        <span v-else class="log-message">{{ log.message }}</span>
       </div>
     </div>
   </div>
@@ -175,6 +191,40 @@ export default {
 
     normalizeLogLevel (level) {
       return normalizeStrategyLogLevel(level)
+    },
+
+    isMarketDataError (log) {
+      return log?.event_type === 'market_data_unavailable' && log?.market_data_error
+    },
+
+    marketDataError (log) {
+      return log?.market_data_error || {}
+    },
+
+    marketDataReasonLabel (log) {
+      const code = this.marketDataError(log).code || 'no_market_data'
+      return this.$t(`trading-assistant.logs.marketData.reason.${code}`)
+    },
+
+    marketDataAction (log) {
+      const code = this.marketDataError(log).code || 'no_market_data'
+      return this.$t(`trading-assistant.logs.marketData.action.${code}`)
+    },
+
+    marketDataIcon (log) {
+      const code = this.marketDataError(log).code
+      if (code === 'region_restricted') return 'global'
+      if (code === 'proxy_failure') return 'disconnect'
+      if (code === 'symbol_not_found') return 'search'
+      if (code === 'rate_limited') return 'clock-circle'
+      return 'warning'
+    },
+
+    marketDataContext (log) {
+      const item = this.marketDataError(log)
+      return [item.exchange_id, item.symbol, item.market_type, item.timeframe]
+        .filter(Boolean)
+        .join(' · ')
     }
   }
 }
@@ -444,6 +494,57 @@ export default {
   color: #a8071a;
   background: #fff1f0;
   border-color: #ffa39e;
+}
+
+.market-data-error {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(250, 173, 20, 0.42);
+  border-radius: 6px;
+  background: rgba(250, 173, 20, 0.08);
+}
+
+.market-data-error-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #d48806;
+}
+
+.market-data-context {
+  color: #8c8c8c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.market-data-error-message {
+  margin-top: 4px;
+  color: inherit;
+}
+
+.market-data-error-action {
+  margin-top: 5px;
+  color: #8c6d1f;
+  font-size: 12px;
+}
+
+.market-data-technical {
+  display: inline-block;
+  margin-top: 5px;
+  color: #8c8c8c;
+  cursor: help;
+  font-size: 11px;
+}
+
+.theme-dark .market-data-error {
+  border-color: rgba(250, 173, 20, 0.36);
+  background: rgba(250, 173, 20, 0.1);
+}
+
+.theme-dark .market-data-error-action {
+  color: #d6b35f;
 }
 
 .log-message {

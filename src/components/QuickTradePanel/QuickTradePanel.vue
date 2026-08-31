@@ -5,7 +5,7 @@
       v-bind="containerProps"
       @close="handleClose"
       class="quick-trade-shell"
-      :class="[embedded ? 'quick-trade-embedded' : 'quick-trade-drawer', { 'theme-dark': isDark, 'qt-embedded-ide': embedded && embeddedIde }]"
+      :class="[embedded ? 'quick-trade-embedded' : 'quick-trade-drawer', { 'theme-dark': isDark, 'qt-embedded-ide': embedded && embeddedIde, 'qt-embedded-dock': embedded && embeddedDock }]"
     >
       <!-- Header (hidden in embedded mode since parent tab already shows title) -->
       <div v-if="!embedded" class="qt-header">
@@ -17,7 +17,7 @@
       </div>
 
       <!-- Symbol & Price Bar -->
-      <div class="qt-symbol-bar">
+      <div v-if="!embeddedDock" class="qt-symbol-bar">
         <div v-if="symbolLocked" class="qt-symbol-summary">
           <div class="qt-symbol-summary-main">
             <span class="qt-symbol-label">{{ $t('quickTrade.syncedWithChart') }}</span>
@@ -63,7 +63,7 @@
         <div class="qt-embedded-col qt-embedded-col-left">
 
           <!-- Credential Selector -->
-          <div class="qt-section">
+          <div class="qt-section qt-account-section">
             <div class="qt-label">{{ accountLabel }} <span class="qt-crypto-hint">{{ accountHint }}</span></div>
             <a-select
               v-model="selectedCredentialId"
@@ -125,60 +125,62 @@
             </div>
           </div>
 
-          <!-- Order Type -->
-          <div class="qt-section">
-            <a-radio-group v-model="orderType" button-style="solid" size="small" style="width: 100%;">
-              <a-radio-button value="market" style="width: 50%; text-align: center;">
-                {{ $t('quickTrade.market') }}
-              </a-radio-button>
-              <a-radio-button value="limit" style="width: 50%; text-align: center;">
-                {{ $t('quickTrade.limit') }}
-              </a-radio-button>
-            </a-radio-group>
-          </div>
-
-          <!-- Limit Price -->
-          <div class="qt-section" v-if="orderType === 'limit'">
-            <div class="qt-label">{{ $t('quickTrade.limitPrice') }}</div>
-            <a-input-number
-              v-model="limitPrice"
-              :min="0"
-              :step="priceStep"
-              :precision="pricePrecision"
-              style="width: 100%"
-              :placeholder="$t('quickTrade.enterPrice')"
-            />
-          </div>
-
-          <!-- Amount (USDT) -->
-          <div class="qt-section qt-amount-block">
-            <div class="qt-label">{{ amountLabel }} ({{ orderCurrency }})</div>
-            <a-input-number
-              v-model="amount"
-              :min="1"
-              :step="10"
-              :precision="2"
-              style="width: 100%"
-              :placeholder="$t('quickTrade.enterAmount')"
-            />
-            <div class="qt-quick-amounts">
-              <a-button
-                v-for="pct in quickAmountPcts"
-                :key="pct"
-                size="small"
-                @click="setAmountByPercent(pct)"
-                :disabled="activeBalanceAvailable <= 0"
-              >
-                {{ pct }}%
-              </a-button>
+          <div class="qt-order-entry-stack">
+            <!-- Order Type -->
+            <div class="qt-section qt-order-type-section">
+              <a-radio-group v-model="orderType" button-style="solid" size="small" style="width: 100%;">
+                <a-radio-button value="market" style="width: 50%; text-align: center;">
+                  {{ $t('quickTrade.market') }}
+                </a-radio-button>
+                <a-radio-button value="limit" style="width: 50%; text-align: center;">
+                  {{ $t('quickTrade.limit') }}
+                </a-radio-button>
+              </a-radio-group>
             </div>
-            <div v-if="isSwapMode" class="qt-notional-summary">
-              {{ $t('quickTrade.marginNotionalFormula', {
-                margin: formatPrice(amount),
-                leverage: leverage,
-                notional: formatPrice(estimatedNotionalUsdt),
-                currency: orderCurrency
-              }) }}
+
+            <!-- Limit Price -->
+            <div class="qt-section qt-limit-section" v-if="orderType === 'limit'">
+              <div class="qt-label">{{ $t('quickTrade.limitPrice') }}</div>
+              <a-input-number
+                v-model="limitPrice"
+                :min="0"
+                :step="priceStep"
+                :precision="pricePrecision"
+                style="width: 100%"
+                :placeholder="$t('quickTrade.enterPrice')"
+              />
+            </div>
+
+            <!-- Amount (USDT) -->
+            <div class="qt-section qt-amount-block">
+              <div class="qt-label">{{ amountLabel }} ({{ orderCurrency }})</div>
+              <a-input-number
+                v-model="amount"
+                :min="1"
+                :step="10"
+                :precision="2"
+                style="width: 100%"
+                :placeholder="$t('quickTrade.enterAmount')"
+              />
+              <div class="qt-quick-amounts">
+                <a-button
+                  v-for="pct in quickAmountPcts"
+                  :key="pct"
+                  size="small"
+                  @click="setAmountByPercent(pct)"
+                  :disabled="activeBalanceAvailable <= 0"
+                >
+                  {{ pct }}%
+                </a-button>
+              </div>
+              <div v-if="isSwapMode" class="qt-notional-summary">
+                {{ $t('quickTrade.marginNotionalFormula', {
+                  margin: formatPrice(amount),
+                  leverage: leverage,
+                  notional: formatPrice(estimatedNotionalUsdt),
+                  currency: orderCurrency
+                }) }}
+              </div>
             </div>
           </div>
 
@@ -244,61 +246,63 @@
             </div>
           </div>
 
-          <!-- TP / SL (optional, always expanded) -->
-          <div class="qt-section qt-card qt-tpsl-card">
-            <div class="qt-section-title-row">
-              <span class="qt-section-title">{{ $t('quickTrade.tpsl') }}</span>
-              <span class="qt-optional-tag">{{ $t('quickTrade.optional') }}</span>
-            </div>
-            <div class="qt-tpsl-row">
-              <div class="qt-tpsl-item">
-                <span class="qt-label qt-tp-label">{{ $t('quickTrade.tp') }}</span>
-                <a-input-number
-                  v-model="tpPrice"
-                  :min="0"
-                  :step="priceStep"
-                  :precision="pricePrecision"
-                  class="qt-input-full"
-                  :placeholder="$t('quickTrade.tpPlaceholder')" />
+          <div class="qt-risk-action-stack">
+            <!-- TP / SL (optional, always expanded) -->
+            <div class="qt-section qt-card qt-tpsl-card">
+              <div class="qt-section-title-row">
+                <span class="qt-section-title">{{ $t('quickTrade.tpsl') }}</span>
+                <span class="qt-optional-tag">{{ $t('quickTrade.optional') }}</span>
               </div>
-              <div class="qt-tpsl-item">
-                <span class="qt-label qt-sl-label">{{ $t('quickTrade.sl') }}</span>
-                <a-input-number
-                  v-model="slPrice"
-                  :min="0"
-                  :step="priceStep"
-                  :precision="pricePrecision"
-                  class="qt-input-full"
-                  :placeholder="$t('quickTrade.slPlaceholder')" />
+              <div class="qt-tpsl-row">
+                <div class="qt-tpsl-item">
+                  <span class="qt-label qt-tp-label">{{ $t('quickTrade.tp') }}</span>
+                  <a-input-number
+                    v-model="tpPrice"
+                    :min="0"
+                    :step="priceStep"
+                    :precision="pricePrecision"
+                    class="qt-input-full"
+                    :placeholder="$t('quickTrade.tpPlaceholder')" />
+                </div>
+                <div class="qt-tpsl-item">
+                  <span class="qt-label qt-sl-label">{{ $t('quickTrade.sl') }}</span>
+                  <a-input-number
+                    v-model="slPrice"
+                    :min="0"
+                    :step="priceStep"
+                    :precision="pricePrecision"
+                    class="qt-input-full"
+                    :placeholder="$t('quickTrade.slPlaceholder')" />
+                </div>
               </div>
+              <div class="qt-hint-text qt-tpsl-record-hint">{{ $t('quickTrade.tpslRecordOnlyHint') }}</div>
             </div>
-            <div class="qt-hint-text qt-tpsl-record-hint">{{ $t('quickTrade.tpslRecordOnlyHint') }}</div>
-          </div>
 
-          <!-- Submit Buttons -->
-          <div class="qt-submit-section qt-submit-section--embedded-left">
-            <a-button
-              type="primary"
-              size="large"
-              :loading="submittingSide === 'buy'"
-              :disabled="!canSubmit"
-              @click="handleSubmit('buy')"
-              class="qt-submit-btn qt-btn-long"
-            >
-              <a-icon type="arrow-up" />
-              {{ buyActionText }}
-            </a-button>
-            <a-button
-              type="danger"
-              size="large"
-              :loading="submittingSide === 'sell'"
-              :disabled="!canSubmit"
-              @click="handleSubmit('sell')"
-              class="qt-submit-btn qt-btn-short"
-            >
-              <a-icon type="arrow-down" />
-              {{ sellActionText }}
-            </a-button>
+            <!-- Submit Buttons -->
+            <div class="qt-submit-section qt-submit-section--embedded-left">
+              <a-button
+                type="primary"
+                size="large"
+                :loading="submittingSide === 'buy'"
+                :disabled="!canSubmit"
+                @click="handleSubmit('buy')"
+                class="qt-submit-btn qt-btn-long"
+              >
+                <a-icon type="arrow-up" />
+                {{ buyActionText }}
+              </a-button>
+              <a-button
+                type="danger"
+                size="large"
+                :loading="submittingSide === 'sell'"
+                :disabled="!canSubmit"
+                @click="handleSubmit('sell')"
+                class="qt-submit-btn qt-btn-short"
+              >
+                <a-icon type="arrow-down" />
+                {{ sellActionText }}
+              </a-button>
+            </div>
           </div>
 
         </div>
@@ -324,7 +328,7 @@
                 class="qt-position-card"
                 :class="pos.side"
               >
-                <div class="qt-pos-row">
+                <div class="qt-pos-row qt-pos-row--side">
                   <span>{{ $t('quickTrade.side') }}</span>
                   <a-tag :color="pos.side === 'long' ? '#52c41a' : '#f5222d'" size="small">
                     {{ pos.side === 'long'
@@ -332,27 +336,27 @@
                       : $t('quickTrade.short') }}
                   </a-tag>
                 </div>
-                <div class="qt-pos-row">
+                <div class="qt-pos-row qt-pos-row--size">
                   <span>{{ $t('quickTrade.posSize') }}</span>
                   <span>{{ pos.size }}</span>
                 </div>
-                <div class="qt-pos-row">
+                <div class="qt-pos-row qt-pos-row--value">
                   <span>{{ $t('quickTrade.positionValue') }}</span>
                   <span>{{ formatPrice(pos.notional_usdt) }} USDT</span>
                 </div>
-                <div class="qt-pos-row">
+                <div class="qt-pos-row qt-pos-row--entry">
                   <span>{{ $t('quickTrade.entryPrice') }}</span>
                   <span>${{ formatPrice(pos.entry_price) }}</span>
                 </div>
-                <div class="qt-pos-row" v-if="pos.mark_price">
+                <div class="qt-pos-row qt-pos-row--mark" v-if="pos.mark_price">
                   <span>{{ $t('quickTrade.markPrice') }}</span>
                   <span>${{ formatPrice(pos.mark_price) }}</span>
                 </div>
-                <div class="qt-pos-row" v-if="pos.leverage && pos.leverage > 1">
+                <div class="qt-pos-row qt-pos-row--leverage" v-if="pos.leverage && pos.leverage > 1">
                   <span>{{ $t('quickTrade.leverage') }}</span>
                   <span>{{ pos.leverage }}x</span>
                 </div>
-                <div class="qt-pos-row">
+                <div class="qt-pos-row qt-pos-row--pnl">
                   <span>{{ $t('quickTrade.unrealizedPnl') }}</span>
                   <span :class="pos.unrealized_pnl >= 0 ? 'qt-green' : 'qt-red'">
                     ${{ formatPrice(pos.unrealized_pnl) }}
@@ -363,9 +367,9 @@
                   size="small"
                   block
                   ghost
+                  class="qt-position-close-btn"
                   @click="handleClosePosition(pos)"
                   :loading="closingPositionSide === pos.side"
-                  style="margin-top: 8px;"
                 >
                   {{ isSwapMode ? $t('quickTrade.closePosition') : $t('quickTrade.sellSpot') }}
                 </a-button>
@@ -446,6 +450,7 @@ export default {
     symbolLocked: { type: Boolean, default: false },
     embedded: { type: Boolean, default: false },
     embeddedIde: { type: Boolean, default: false },
+    embeddedDock: { type: Boolean, default: false },
     overlayGetContainer: { type: Function, default: null }
   },
   data () {
@@ -1670,6 +1675,283 @@ export default {
   }
 }
 
+.qt-risk-action-stack {
+  display: contents;
+}
+
+/* Indicator chart dock: keep the complete order path visible below the K-line. */
+.quick-trade-embedded.qt-embedded-ide.qt-embedded-dock {
+  min-width: 0;
+
+  .qt-embedded-split--cols {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.9fr) minmax(300px, 1.05fr) minmax(340px, 1.25fr);
+    align-items: stretch;
+    gap: 10px;
+    padding: 8px 12px 12px;
+  }
+  .qt-embedded-split--cols .qt-embedded-col-left,
+  .qt-embedded-split--cols .qt-embedded-col-right {
+    display: contents;
+  }
+  .qt-embedded-split--cols .qt-embedded-col-right {
+    border: 0;
+  }
+
+  .qt-account-section,
+  .qt-mode-card,
+  .qt-risk-action-stack,
+  .qt-position-section,
+  .qt-history-section {
+    width: auto;
+    min-width: 0;
+    height: 100%;
+    margin: 0 !important;
+    box-sizing: border-box;
+  }
+
+  .qt-account-section {
+    grid-column-start: 1;
+    grid-column-end: -1;
+    display: grid;
+    grid-template-columns: auto minmax(240px, 420px) auto minmax(260px, 1fr);
+    align-items: center;
+    gap: 10px;
+    height: auto;
+    padding: 8px 10px !important;
+  }
+  .qt-account-section > .qt-label {
+    margin: 0;
+    white-space: nowrap;
+  }
+  .qt-account-section .qt-account-actions {
+    margin: 0;
+  }
+  .qt-account-section .qt-add-account-btn {
+    width: auto;
+    min-width: 104px;
+    padding: 0 14px;
+  }
+  .qt-account-section .qt-balance {
+    min-width: 0;
+    margin: 0;
+    padding: 5px 10px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 16px;
+  }
+  .qt-account-section .qt-balance-line {
+    flex: 0 1 190px;
+    min-width: 0;
+  }
+  .qt-account-section .qt-balance-error-hint {
+    margin: 0;
+  }
+
+  .qt-order-entry-stack {
+    min-width: 0;
+    height: 100%;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    box-sizing: border-box;
+  }
+  .qt-order-entry-stack .qt-section:not(.qt-card) {
+    margin: 0 !important;
+    padding: 4px !important;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .qt-order-entry-stack .qt-order-type-section {
+    padding-top: 0 !important;
+  }
+  .qt-order-entry-stack .qt-amount-block {
+    padding-bottom: 0 !important;
+  }
+
+  .qt-mode-card {
+    padding: 10px 12px;
+  }
+  .qt-mode-card .qt-section-title-row,
+  .qt-tpsl-card .qt-section-title-row {
+    margin-bottom: 8px;
+  }
+  .qt-mode-card .qt-label-spaced,
+  .qt-mode-card .qt-hint-text,
+  .qt-tpsl-card .qt-tpsl-record-hint {
+    margin-top: 8px;
+  }
+  .qt-mode-card .qt-leverage-row {
+    margin: 2px 0 4px;
+  }
+  .qt-tpsl-card .qt-tpsl-row {
+    gap: 8px;
+  }
+  .qt-tpsl-card .qt-tpsl-item .qt-label {
+    margin-bottom: 4px;
+  }
+
+  .qt-risk-action-stack {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  }
+  .qt-risk-action-stack .qt-tpsl-card {
+    width: 100%;
+    height: auto;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .qt-risk-action-stack .qt-submit-section--embedded-left {
+    width: 100%;
+    min-height: 0;
+    margin: auto 0 0 !important;
+    padding: 10px 0 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .qt-risk-action-stack .qt-submit-btn {
+    min-width: 0;
+    height: 42px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+
+  .qt-position-section,
+  .qt-history-section {
+    grid-column-start: 1;
+    grid-column-end: -1;
+  }
+  .qt-position-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+    height: auto;
+    padding: 10px 12px;
+  }
+  .qt-position-section .qt-section-header,
+  .qt-position-section .qt-close-scope,
+  .qt-position-section .qt-position-empty {
+    grid-column-start: 1;
+    grid-column-end: -1;
+  }
+  .qt-position-section .qt-section-header {
+    margin-bottom: 0;
+  }
+  .qt-position-section .qt-position-empty {
+    min-height: 50px;
+    flex-direction: row;
+    gap: 10px;
+  }
+  .qt-position-section .qt-position-empty .qt-empty-icon {
+    margin: 0;
+    font-size: 22px;
+  }
+  .qt-position-card + .qt-position-card {
+    margin-top: 0;
+  }
+  .qt-position-card {
+    grid-column-start: 1;
+    grid-column-end: -1;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(96px, 1fr)) minmax(112px, auto);
+    align-items: center;
+    gap: 10px 18px;
+    min-height: 64px;
+    padding: 10px 12px;
+  }
+  .qt-position-card .qt-pos-row {
+    min-width: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 3px;
+  }
+  .qt-position-card .qt-pos-row > span,
+  .qt-position-card .qt-pos-row > .ant-tag {
+    max-width: 100%;
+  }
+  .qt-position-card .qt-pos-row > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .qt-position-card .qt-position-close-btn {
+    align-self: center;
+    justify-self: center;
+    width: 148px;
+    max-width: 100%;
+    min-width: 112px;
+    margin: 0;
+  }
+}
+
+@media (max-width: 1280px) {
+  .quick-trade-embedded.qt-embedded-ide.qt-embedded-dock {
+    .qt-embedded-split--cols {
+      grid-template-columns: repeat(2, minmax(280px, 1fr));
+    }
+    .qt-account-section {
+      grid-template-columns: auto minmax(220px, 1fr) auto;
+    }
+    .qt-account-section .qt-balance {
+      grid-column-start: 1;
+      grid-column-end: -1;
+      justify-content: flex-start;
+    }
+    .qt-risk-action-stack {
+      grid-column-start: 1;
+      grid-column-end: -1;
+    }
+    .qt-position-card {
+      grid-template-columns: repeat(4, minmax(100px, 1fr));
+    }
+    .qt-position-card .qt-position-close-btn {
+      min-height: 34px;
+    }
+  }
+}
+
+@media (max-width: 760px) {
+  .quick-trade-embedded.qt-embedded-ide.qt-embedded-dock {
+    .qt-embedded-split--cols,
+    .qt-account-section {
+      grid-template-columns: 1fr;
+    }
+    .qt-account-section > .qt-label,
+    .qt-account-section .qt-account-actions,
+    .qt-account-section .qt-balance {
+      grid-column: 1;
+    }
+    .qt-account-section .qt-add-account-btn {
+      width: 100%;
+    }
+    .qt-account-section .qt-balance {
+      flex-wrap: wrap;
+    }
+  }
+}
+
 .qt-header {
   display: flex;
   align-items: center;
@@ -2355,6 +2637,23 @@ export default {
     .qt-history-section {
       background: #1f1f1f;
       border-color: #363636;
+    }
+    &.qt-embedded-dock {
+      .qt-order-entry-stack,
+      .qt-risk-action-stack {
+        background: #1f1f1f;
+        border-color: #363636;
+        box-shadow: none;
+      }
+      .qt-order-entry-stack .qt-section:not(.qt-card) {
+        background: transparent;
+        border-color: transparent;
+      }
+      .qt-risk-action-stack .qt-tpsl-card,
+      .qt-risk-action-stack .qt-submit-section--embedded-left {
+        background: transparent;
+        border-color: transparent;
+      }
     }
   }
   .qt-header {

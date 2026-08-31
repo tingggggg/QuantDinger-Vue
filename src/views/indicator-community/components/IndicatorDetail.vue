@@ -72,10 +72,15 @@
                 <h3>{{ $t('community.strategyContract') }}</h3>
                 <p>{{ $t('community.strategyContractHint') }}</p>
               </div>
-              <span class="source-controlled-badge">
-                <a-icon type="safety-certificate" />
-                {{ $t('community.sourceControlled') }}
-              </span>
+              <div class="section-heading-actions">
+                <span class="source-controlled-badge">
+                  <a-icon type="safety-certificate" />
+                  {{ $t('community.sourceControlled') }}
+                </span>
+                <a-tag :color="bindingMode === 'parameterized' ? 'green' : bindingMode === 'fixed' ? 'orange' : 'blue'">
+                  {{ $t(`community.binding.${bindingMode}`) }}
+                </a-tag>
+              </div>
             </div>
 
             <div class="contract-grid">
@@ -91,21 +96,25 @@
 
             <div class="contract-logic-grid">
               <div class="contract-logic-card">
-                <span class="contract-logic-card__label">{{ $t('community.contractSignals') }}</span>
+                <span class="contract-logic-card__label"><a-icon type="branches" />{{ $t('community.contractSignals') }}</span>
                 <div class="contract-tags">
                   <a-tag v-for="name in strategyDependencies" :key="`dep-${name}`">{{ name }}</a-tag>
-                  <span v-if="!strategyDependencies.length" class="contract-empty">—</span>
+                  <span v-if="!strategyDependencies.length" class="contract-empty contract-empty--meaningful">
+                    <a-icon type="check-circle" />{{ $t('community.noExternalSignalDependencies') }}
+                  </span>
                 </div>
               </div>
               <div class="contract-logic-card">
-                <span class="contract-logic-card__label">{{ $t('community.contractData') }}</span>
+                <span class="contract-logic-card__label"><a-icon type="database" />{{ $t('community.contractData') }}</span>
                 <div class="contract-tags">
                   <a-tag v-for="name in (strategyContract.data_fields || [])" :key="`field-${name}`">{{ name.toUpperCase() }}</a-tag>
-                  <span v-if="!(strategyContract.data_fields || []).length" class="contract-empty">—</span>
+                  <span v-if="!(strategyContract.data_fields || []).length" class="contract-empty contract-empty--meaningful">
+                    <a-icon type="info-circle" />{{ $t('community.noDeclaredMarketData') }}
+                  </span>
                 </div>
               </div>
               <div class="contract-logic-card contract-logic-card--warmup">
-                <span class="contract-logic-card__label">{{ $t('community.contractWarmup') }}</span>
+                <span class="contract-logic-card__label"><a-icon type="hourglass" />{{ $t('community.contractWarmup') }}</span>
                 <strong>{{ $t('community.contractWarmupBars', { count: strategyContract.warmup_bars || 0 }) }}</strong>
               </div>
             </div>
@@ -204,9 +213,17 @@
                   </div>
                 </div>
                 <div class="perf-item">
-                  <div class="perf-label">{{ $t('community.profitFactor') }}</div>
-                  <div class="perf-value" :class="toneClass((performance.profit_factor || 0) - 1)">
-                    {{ formatNumber(performance.profit_factor, 2) }}
+                  <div class="perf-label">
+                    {{ $t('strategyCenter.backtest.payoffRatio') }}
+                    <a-tooltip :title="payoffRatioTooltip(performance)">
+                      <a-icon
+                        type="info-circle"
+                        :class="{ 'payoff-warning': isPayoffRatioUnstable(performance) }"
+                      />
+                    </a-tooltip>
+                  </div>
+                  <div class="perf-value" :class="toneClass((performance.profit_loss_ratio || 0) - 1)">
+                    {{ formatPayoffRatio(performance) }}
                   </div>
                 </div>
                 <div class="perf-item">
@@ -376,6 +393,37 @@
         </div>
       </div>
     </a-spin>
+    <a-modal
+      :visible="compatibilityVisible"
+      :title="$t('community.compatibilityTitle')"
+      :confirm-loading="adaptingStrategy"
+      :ok-text="$t('community.createAdaptedDraft')"
+      :ok-button-props="{ props: { disabled: !compatibilityResult || !compatibilityResult.compatible } }"
+      :cancel-text="$t('community.cancelEdit')"
+      :wrap-class-name="modalWrapClass"
+      @ok="createAdaptedDraft"
+      @cancel="compatibilityVisible = false"
+    >
+      <a-alert type="warning" show-icon :message="$t('community.compatibilityHint')" class="compatibility-alert" />
+      <a-form layout="vertical">
+        <a-form-item :label="$t('community.targetInstrument')">
+          <a-input v-model="compatibilityTarget" :placeholder="$t('community.targetInstrumentPlaceholder')" @pressEnter="checkCompatibility">
+            <a-icon slot="prefix" type="stock" />
+          </a-input>
+        </a-form-item>
+        <a-button block :loading="checkingCompatibility" @click="checkCompatibility">
+          <a-icon type="safety-certificate" /> {{ $t('community.checkCompatibility') }}
+        </a-button>
+      </a-form>
+      <a-alert
+        v-if="compatibilityResult"
+        class="compatibility-result"
+        :type="compatibilityResult.compatible ? 'success' : 'error'"
+        show-icon
+        :message="$t(compatibilityResult.compatible ? 'community.compatible' : 'community.incompatible')"
+        :description="compatibilityDescription"
+      />
+    </a-modal>
   </a-modal>
 </template>
 
@@ -421,7 +469,12 @@ export default {
       equityChartInst: null,
       equityResizeHandler: null,
       showAllParameters: false,
-      parameterPreviewLimit: 4
+      parameterPreviewLimit: 4,
+      compatibilityVisible: false,
+      compatibilityTarget: '',
+      compatibilityResult: null,
+      checkingCompatibility: false,
+      adaptingStrategy: false
     }
   },
   computed: {
@@ -462,8 +515,21 @@ export default {
       return this.isStrategyAsset ? 860 : 720
     },
     strategyContract () {
-      const contract = this.performance && this.performance.strategy_contract
+      const contract = (this.detail && (this.detail.marketplace_contract || this.detail.strategy_contract)) ||
+        (this.performance && (this.performance.marketplace_contract || this.performance.strategy_contract))
       return contract && typeof contract === 'object' ? contract : null
+    },
+    bindingMode () {
+      return (this.detail && this.detail.binding_mode) || (this.strategyContract && this.strategyContract.binding_mode) || 'unknown'
+    },
+    compatibilityDescription () {
+      if (!this.compatibilityResult) return ''
+      if (this.compatibilityResult.compatible) return this.$t('community.rebacktestRequired')
+      return (this.compatibilityResult.reason_codes || []).map(code => {
+        const key = `community.compatibilityReason.${code}`
+        const translated = this.$t(key)
+        return translated === key ? code : translated
+      }).join(' · ')
     },
     strategyParameters () {
       return this.strategyContract && Array.isArray(this.strategyContract.parameters)
@@ -510,10 +576,26 @@ export default {
           hint: this.$t(`community.strategyType.${strategyTypeKey}`)
         },
         {
-          key: 'frequency',
+          key: 'executionMode',
           icon: 'clock-circle',
-          label: this.$t('community.contractFrequency'),
-          value: contract.primary_frequency || '—',
+          label: this.$t('community.executionMode'),
+          value: this.formatExecutionMode(contract.execution_mode),
+          hint: this.$t('community.marketplaceMetadataOnly')
+        },
+        {
+          key: 'executionFrequency',
+          icon: 'play-circle',
+          label: this.$t('community.executionFrequency'),
+          value: contract.execution_frequency || contract.primary_frequency || '—',
+          hint: this.$t('community.sourceControlled')
+        },
+        {
+          key: 'confirmationFrequencies',
+          icon: 'check-circle',
+          label: this.$t('community.confirmationFrequencies'),
+          value: Array.isArray(contract.confirmation_frequencies) && contract.confirmation_frequencies.length
+            ? contract.confirmation_frequencies.join(' · ')
+            : this.$t('community.noConfirmationFrequency'),
           hint: this.$t('community.sourceControlled')
         },
         {
@@ -949,6 +1031,12 @@ export default {
     },
 
     goToUse () {
+      if (this.isScriptTemplate && this.bindingMode === 'parameterized') {
+        this.compatibilityTarget = ''
+        this.compatibilityResult = null
+        this.compatibilityVisible = true
+        return
+      }
       this.$emit('close')
       const assetType = (this.detail && this.detail.asset_type) || 'indicator'
       if (assetType === 'script_template') {
@@ -973,6 +1061,53 @@ export default {
         path: '/indicator-ide',
         query: localId ? { indicator_id: String(localId) } : {}
       })
+    },
+
+    async checkCompatibility () {
+      if (!String(this.compatibilityTarget || '').trim()) return
+      this.checkingCompatibility = true
+      try {
+        const res = await request({
+          url: `/api/community/indicators/${this.indicatorId}/compatibility`,
+          method: 'get',
+          params: {
+            target_instrument: String(this.compatibilityTarget || '').trim()
+          }
+        })
+        this.compatibilityResult = res && res.code === 1 ? res.data : { compatible: false, reason_codes: [res && res.msg] }
+      } catch (e) {
+        this.compatibilityResult = { compatible: false, reason_codes: [e.backendMessage || e.message || 'request_failed'] }
+      } finally {
+        this.checkingCompatibility = false
+      }
+    },
+
+    async createAdaptedDraft () {
+      if (!this.compatibilityResult || !this.compatibilityResult.compatible) return
+      this.adaptingStrategy = true
+      try {
+        const res = await request({
+          url: `/api/community/indicators/${this.indicatorId}/adapt`,
+          method: 'post',
+          data: {
+            target_instrument: String(this.compatibilityTarget || '').trim()
+          }
+        })
+        if (!(res && res.code === 1 && res.data && res.data.script_source_id)) {
+          throw new Error((res && res.msg) || 'strategy_adaptation_failed')
+        }
+        this.$message.success(this.$t('community.adaptedDraftCreated'))
+        this.compatibilityVisible = false
+        this.$emit('close')
+        this.$router.push({
+          path: '/strategy-ide',
+          query: { sourceId: String(res.data.script_source_id), requiresBacktest: '1' }
+        })
+      } catch (e) {
+        this.$message.error(e.backendMessage || e.message || this.$t('community.incompatible'))
+      } finally {
+        this.adaptingStrategy = false
+      }
     },
 
     handleSyncCode () {
@@ -1043,6 +1178,22 @@ export default {
       if (isNaN(v)) return '—'
       return v.toFixed(digits == null ? 2 : digits)
     },
+    formatPayoffRatio (performance) {
+      if (!performance || Number(performance.losing_trades || 0) <= 0) return '—'
+      return this.formatNumber(performance.profit_loss_ratio, 2)
+    },
+    isPayoffRatioUnstable (performance) {
+      const losses = Number(performance && performance.losing_trades) || 0
+      return losses > 0 && losses < 3
+    },
+    payoffRatioTooltip (performance) {
+      const wins = Number(performance && performance.winning_trades) || 0
+      const losses = Number(performance && performance.losing_trades) || 0
+      const sampleWarning = this.isPayoffRatioUnstable(performance)
+        ? `${this.$t('backtest-center.audit.lowSample')} · `
+        : ''
+      return `${sampleWarning}${this.$t('strategyCenter.backtest.winningTrades')}: ${wins} · ${this.$t('strategyCenter.backtest.losingTrades')}: ${losses}`
+    },
     formatPercent (val) {
       const v = parseFloat(val)
       if (isNaN(v)) return '—'
@@ -1059,6 +1210,11 @@ export default {
       if (type === 'spot') return this.$t('trading-assistant.form.marketTypeSpot')
       if (type === 'swap') return this.$t('trading-assistant.form.marketTypeFutures')
       return type || '—'
+    },
+    formatExecutionMode (val) {
+      const mode = String(val || 'bar').toLowerCase()
+      const key = `community.executionModeValue.${mode}`
+      return this.$te(key) ? this.$t(key) : mode
     },
     formatLeverage (val) {
       const v = parseFloat(val)
@@ -1110,6 +1266,14 @@ export default {
 </script>
 
 <style lang="less" scoped>
+.compatibility-alert {
+  margin-bottom: 18px;
+}
+
+.compatibility-result {
+  margin-top: 16px;
+}
+
 .indicator-detail-modal {
   .detail-container {
     display: flex;
@@ -1119,14 +1283,14 @@ export default {
 
   .detail-header {
     display: flex;
-    gap: 20px;
-    padding: 20px;
+    gap: 16px;
+    padding: 16px 20px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: #fff;
 
     .header-cover {
-      width: 180px;
-      height: 120px;
+      width: 156px;
+      height: 100px;
       border-radius: 8px;
       overflow: hidden;
       flex-shrink: 0;
@@ -1162,7 +1326,7 @@ export default {
         align-items: center;
         flex-wrap: wrap;
         gap: 8px;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
 
         .indicator-name {
           margin-bottom: 0;
@@ -1187,7 +1351,7 @@ export default {
         display: flex;
         align-items: center;
         gap: 16px;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
 
         .author-info {
           display: flex;
@@ -1207,7 +1371,7 @@ export default {
 
       .indicator-stats {
         display: flex;
-        gap: 24px;
+        gap: 20px;
 
         ::v-deep .ant-statistic {
           .ant-statistic-title {
@@ -1233,16 +1397,16 @@ export default {
   .detail-body {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 16px 20px 20px;
 
     .section {
-      margin-bottom: 24px;
+      margin-bottom: 18px;
 
       h3 {
         font-size: 16px;
         font-weight: 600;
-        margin-bottom: 12px;
-        padding-bottom: 8px;
+        margin-bottom: 8px;
+        padding-bottom: 6px;
         border-bottom: 1px solid #f0f0f0;
       }
 
@@ -1418,7 +1582,7 @@ export default {
       align-items: flex-start;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
 
       h3 {
         margin-bottom: 4px;
@@ -1431,6 +1595,18 @@ export default {
         color: rgba(0, 0, 0, 0.52);
         font-size: 12px;
         line-height: 1.6;
+      }
+    }
+
+    .section-heading-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+
+      .ant-tag {
+        margin: 0;
       }
     }
 
@@ -1456,7 +1632,7 @@ export default {
 
     .contract-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 10px;
     }
 
@@ -1507,19 +1683,26 @@ export default {
 
     .contract-logic-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr 160px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) 140px;
       gap: 10px;
       margin-top: 10px;
     }
 
     .contract-logic-card {
+      display: flex;
+      min-height: 70px;
+      flex-direction: column;
+      justify-content: center;
       min-width: 0;
       padding: 11px 12px;
+      border: 1px solid rgba(0, 0, 0, 0.055);
       border-radius: 8px;
       background: rgba(0, 0, 0, 0.025);
 
       &__label {
-        display: block;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
         margin-bottom: 7px;
         color: rgba(0, 0, 0, 0.48);
         font-size: 11px;
@@ -1547,6 +1730,18 @@ export default {
 
     .contract-empty {
       color: rgba(0, 0, 0, 0.3);
+
+      &--meaningful {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: rgba(0, 0, 0, 0.55);
+        font-size: 11px;
+
+        .anticon {
+          color: #52c41a;
+        }
+      }
     }
 
     .parameter-panel {
@@ -1720,6 +1915,10 @@ export default {
           .anticon {
             font-size: 12px;
             color: rgba(0, 0, 0, 0.35);
+          }
+
+          .payoff-warning {
+            color: #faad14;
           }
         }
 
@@ -1987,6 +2186,14 @@ export default {
     .contract-logic-card {
       &__label { color: rgba(255, 255, 255, 0.48); }
       &--warmup strong { color: rgba(255, 255, 255, 0.86); }
+    }
+
+    .contract-empty--meaningful {
+      color: rgba(255, 255, 255, 0.62);
+
+      .anticon {
+        color: #95de64;
+      }
     }
 
     .contract-tags .ant-tag {

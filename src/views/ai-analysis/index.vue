@@ -564,7 +564,7 @@ class="analyze-button">
 
     <a-modal
       :visible="showPositionModal"
-      :title="`${($i18n && $i18n.locale === 'zh-CN') ? '创建持仓（虚拟仓）' : 'Create Position (Virtual)'} - ${targetStockForOps ? targetStockForOps.symbol : ''}`"
+      :title="`${$t('aiAssetAnalysis.position.createVirtual')} - ${targetStockForOps ? targetStockForOps.symbol : ''}`"
       @ok="savePosition"
       @cancel="showPositionModal = false"
       :wrapClassName="isDarkTheme ? 'qd-dark-modal' : ''"
@@ -576,10 +576,10 @@ class="analyze-button">
             <a-select-option value="short">{{ $t('portfolio.positions.short') || 'Short' }}</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item :label="($i18n && $i18n.locale === 'zh-CN') ? '数量' : 'Quantity'">
+        <a-form-item :label="$t('portfolio.positions.quantity')">
           <a-input-number v-model="positionForm.quantity" :min="0" :step="0.01" style="width: 100%;" />
         </a-form-item>
-        <a-form-item :label="($i18n && $i18n.locale === 'zh-CN') ? '买入单价' : 'Entry Price'">
+        <a-form-item :label="$t('portfolio.positions.entryPrice')">
           <a-input-number v-model="positionForm.entryPrice" :min="0" :step="0.01" style="width: 100%;" />
         </a-form-item>
       </a-form>
@@ -759,7 +759,7 @@ class="analyze-button">
                       :color="item.decision === 'BUY' ? 'green' : (item.decision === 'SELL' ? 'red' : 'blue')"
                       style="margin-left: 12px;"
                     >
-                      {{ formatDecisionLabel(item.decision) }}
+                      {{ formatDecisionLabel(item.decision, item.outlook_bias, item.consensus && item.consensus.consensus_score) }}
                     </a-tag>
                     <a-tag :color="getStatusColor(item.status || 'completed')" style="margin-left: 8px;">
                       {{ getStatusText(item.status || 'completed') }}
@@ -826,6 +826,7 @@ import CopilotWorkbench from './components/CopilotWorkbench.vue'
 import sessionCache from '@/utils/sessionCache'
 import { loadEnabledMarketOptions, firstMarketValue } from '@/utils/marketModules'
 import { CRYPTO_EXCHANGE_IDS } from '@/utils/marketContext'
+import { resolveDecisionLabelKey } from '@/utils/fastAnalysisPresentation'
 
 // Cache only the context panels that remain on the default AI analysis screen.
 // Market heatmaps and global index tickers are not loaded by default because
@@ -1414,11 +1415,7 @@ export default {
       const quantity = Number(this.positionForm.quantity || 0)
       const entryPrice = Number(this.positionForm.entryPrice || 0)
       if (!(quantity > 0) || !(entryPrice > 0)) {
-        this.$message.warning(
-          this.$i18n && this.$i18n.locale === 'zh-CN'
-            ? '请输入有效的数量和买入单价'
-            : 'Please enter valid quantity and entry price'
-        )
+        this.$message.warning(this.$t('aiAssetAnalysis.position.invalidInput'))
         return
       }
       try {
@@ -1753,10 +1750,10 @@ export default {
         tomorrow.setDate(tomorrow.getDate() + 1)
 
         if (date.toDateString() === today.toDateString()) {
-          return this.isZhLocale ? '今天' : 'Today'
+          return this.$t('aiAssetAnalysis.copilot.today')
         }
         if (date.toDateString() === tomorrow.toDateString()) {
-          return this.isZhLocale ? '明天' : 'Tmrw'
+          return this.$t('aiAssetAnalysis.calendar.tomorrow')
         }
 
         const month = date.getMonth() + 1
@@ -1840,11 +1837,8 @@ export default {
       if (Number.isNaN(x)) return String(n)
       return Number.isInteger(x) ? String(x) : x.toFixed(2)
     },
-    formatDecisionLabel (decision) {
-      const d = String(decision || 'HOLD').toUpperCase()
-      if (d === 'BUY') return this.$t('fastAnalysis.outlookBull')
-      if (d === 'SELL') return this.$t('fastAnalysis.outlookBear')
-      return this.$t('fastAnalysis.outlookNeutral')
+    formatDecisionLabel (decision, bias, score) {
+      return this.$t(resolveDecisionLabelKey({ decision, bias, score }))
     },
     neutralizeDecisionText (text) {
       if (text === undefined || text === null) return ''

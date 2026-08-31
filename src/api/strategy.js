@@ -15,6 +15,7 @@ const api = {
   unreadNotificationCount: '/api/strategies/notifications/unread-count',
   verifyCode: '/api/strategies/verify',
   aiGenerate: '/api/strategies/generate',
+  aiWorkspace: '/api/strategies/ai-workspace',
   scriptTemplates: '/api/strategies/script-templates',
   reviewReport: '/api/strategies/review-report',
   reviewReportHistory: '/api/strategies/review-report/history',
@@ -38,6 +39,7 @@ const api = {
   updateScriptSource: '/api/strategies/script-sources/update',
   deleteScriptSource: '/api/strategies/script-sources/delete',
   publishScriptSource: '/api/strategies/script-sources/publish',
+  scriptSourcePublishReadiness: '/api/strategies/script-sources/publish-readiness',
   scriptSourceVersions: '/api/strategies/script-sources/versions',
   restoreScriptSourceVersion: '/api/strategies/script-sources/versions/restore',
   compileScriptSource: '/api/strategies/script-sources/compile',
@@ -222,6 +224,39 @@ export function aiGenerateStrategy (data) {
   })
 }
 
+export function getStrategyAiWorkspace (sourceId, params = {}) {
+  return request({
+    url: `${api.aiWorkspace}/${sourceId}`,
+    method: 'get',
+    params
+  })
+}
+
+export function clearStrategyAiWorkspace (sourceId, params = {}) {
+  return request({
+    url: `${api.aiWorkspace}/${sourceId}`,
+    method: 'delete',
+    params
+  })
+}
+
+export function runStrategyAiTurn (data) {
+  return request({
+    url: `${api.aiWorkspace}/turn`,
+    method: 'post',
+    data,
+    timeout: AI_GENERATE_TIMEOUT
+  })
+}
+
+export function setStrategyAiCandidateStatus (changeId, status) {
+  return request({
+    url: `${api.aiWorkspace}/changes/${changeId}/status`,
+    method: 'post',
+    data: { status }
+  })
+}
+
 export function getScriptTemplateList (params = {}) {
   return request({
     url: api.scriptTemplates,
@@ -401,6 +436,14 @@ export function publishScriptSource (data) {
     url: api.publishScriptSource,
     method: 'post',
     data
+  })
+}
+
+export function getScriptSourcePublishReadiness (sourceId) {
+  return request({
+    url: api.scriptSourcePublishReadiness,
+    method: 'get',
+    params: { id: sourceId }
   })
 }
 

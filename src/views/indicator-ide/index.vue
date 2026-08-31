@@ -75,131 +75,223 @@
               </div>
             </div>
           </div>
-          <div class="code-panel-body">
-            <div class="ide-guide-bar">
-              <a-icon type="book" />
-              <span>{{ $t('indicatorIde.devGuideTooltip') }}</span>
-              <a href="https://www.quantdinger.com/docs-zh.html#strategy-overview" target="_blank" rel="noopener noreferrer" class="ide-guide-link" @click.stop>
-                {{ $t('indicatorIde.devGuide') }} <a-icon type="arrow-right" />
-              </a>
-            </div>
-            <div class="code-editor-wrapper">
-              <div ref="codeEditor" class="code-editor-area"></div>
-              <div v-if="selectedIndicatorCodeHidden" class="code-hidden-mask">
-                <a-icon type="lock" />
-                <strong>{{ $t('indicatorIde.hiddenCodeTitle') }}</strong>
-                <span>{{ $t('indicatorIde.hiddenCodeDesc') }}</span>
-              </div>
-              <transition name="fade">
-                <div
-                  v-if="aiGenerating"
-                  class="code-ai-overlay"
-                >
-                  <div class="code-ai-overlay-inner">
-                    <a-icon type="loading" spin style="font-size: 22px; color: var(--primary-color, #1890ff);" />
-                    <span>{{ $t('indicatorIde.generating') }}</span>
-                    <div class="code-ai-overlay-dots">
-                      <span class="dot dot1"></span><span class="dot dot2"></span><span class="dot dot3"></span>
-                    </div>
-                  </div>
-                  <div class="code-ai-overlay-tip">{{ ideAiCurrentTip }}</div>
+          <div ref="codePanelBody" class="code-panel-body" :class="{ 'is-resizing': codeAiResizing }">
+            <div class="code-editor-section" :style="{ flexBasis: `${codeAiSplitRatio}%` }">
+              <div class="ide-guide-bar">
+                <div class="ide-guide-copy">
+                  <a-icon type="book" />
+                  <span>{{ $t('indicatorIde.devGuideTooltip') }}</span>
                 </div>
-              </transition>
-            </div>
-
-            <!-- Code quality (between editor and AI) -->
-            <div class="code-quality-panel">
-              <div class="code-quality-head">
-                <span class="code-quality-title">{{ $t('indicatorIde.codeQualityTitle') }}</span>
-                <a-button
-                  type="link"
-                  size="small"
-                  class="code-quality-recheck"
-                  :loading="codeQualityLoading"
-                  @click="runCodeQualityCheck"
-                >{{ $t('indicatorIde.codeQualityRecheck') }}</a-button>
+                <div class="ide-guide-actions">
+                  <a-popover v-if="codeQualityChecked && sortedCodeQualityHints.length" placement="bottomRight" trigger="hover">
+                    <template slot="content">
+                      <ul class="code-quality-popover-list">
+                        <li
+                          v-for="(h, idx) in sortedCodeQualityHints"
+                          :key="idx"
+                          :class="qualityHintClass(h)"
+                        >{{ formatQualityHint(h) }}</li>
+                      </ul>
+                    </template>
+                    <span class="code-quality-top-status" :class="codeQualityTopStatusClass">
+                      <a-icon :type="codeQualityTopStatusIcon" />
+                      <span>{{ codeQualityTopStatusText }}</span>
+                    </span>
+                  </a-popover>
+                  <span v-else-if="codeQualityChecked" class="code-quality-top-status code-quality-top-status--success">
+                    <a-icon type="check-circle" />
+                    <span>{{ $t('indicatorIde.codeQualityAllGood') }}</span>
+                  </span>
+                  <a-button
+                    size="small"
+                    class="code-quality-top-button"
+                    :loading="codeQualityLoading"
+                    @click="runCodeQualityCheck"
+                  ><a-icon v-if="!codeQualityLoading" type="safety-certificate" /> {{ $t('indicatorIde.codeQualityRecheck') }}</a-button>
+                  <a href="https://www.quantdinger.com/docs-zh.html#strategy-overview" target="_blank" rel="noopener noreferrer" class="ide-guide-link" @click.stop>
+                    {{ $t('indicatorIde.devGuide') }} <a-icon type="arrow-right" />
+                  </a>
+                </div>
               </div>
-              <a-spin v-if="codeQualityLoading" size="small" class="code-quality-spin" />
-              <ul v-else-if="sortedCodeQualityHints.length" class="code-quality-list">
-                <li
-                  v-for="(h, idx) in sortedCodeQualityHints"
-                  :key="idx"
-                  :class="qualityHintClass(h)"
-                >{{ formatQualityHint(h) }}</li>
-              </ul>
+              <div class="code-editor-wrapper">
+                <div ref="codeEditor" class="code-editor-area"></div>
+                <div v-if="selectedIndicatorCodeHidden" class="code-hidden-mask">
+                  <a-icon type="lock" />
+                  <strong>{{ $t('indicatorIde.hiddenCodeTitle') }}</strong>
+                  <span>{{ $t('indicatorIde.hiddenCodeDesc') }}</span>
+                </div>
+                <transition name="fade">
+                  <div
+                    v-if="aiGenerating"
+                    class="code-ai-overlay"
+                  >
+                    <div class="code-ai-overlay-inner">
+                      <a-icon type="loading" spin style="font-size: 22px; color: var(--primary-color, #1890ff);" />
+                      <span>{{ $t('indicatorIde.generating') }}</span>
+                      <div class="code-ai-overlay-dots">
+                        <span class="dot dot1"></span><span class="dot dot2"></span><span class="dot dot3"></span>
+                      </div>
+                    </div>
+                    <div class="code-ai-overlay-tip">{{ ideAiCurrentTip }}</div>
+                  </div>
+                </transition>
+              </div>
             </div>
 
             <div
-              v-if="aiDebugSummary"
-              class="ai-debug-card"
-              :class="`ai-debug-card--${aiDebugState()}`"
-            >
-              <div class="ai-debug-card__header">
-                <div class="ai-debug-card__badge">
-                  <a-icon :type="aiDebugStateIcon()" />
-                </div>
-                <div class="ai-debug-card__headline">
-                  <span class="ai-debug-card__tag">{{ $t('indicatorIde.aiQaTag') || 'AI QA' }}</span>
-                  <span class="ai-debug-card__title">{{ aiDebugSummary.title }}</span>
-                </div>
-                <a-icon type="close" class="ai-debug-card__dismiss" @click="aiDebugSummary = null" />
-              </div>
-              <div class="ai-debug-card__chips">
-                <span :class="['ai-debug-chip', `ai-debug-chip--${aiDebugState()}`]">{{ aiDebugStateLabel() }}</span>
-                <span v-if="aiDebugSummary.fixed_messages.length" class="ai-debug-chip ai-debug-chip--success">
-                  <a-icon type="check" style="font-size: 10px;" /> {{ aiDebugSummary.fixed_messages.length }} {{ $t('indicatorIde.fixed') || 'fixed' }}
-                </span>
-                <span v-if="aiDebugSummary.remaining_messages.length" class="ai-debug-chip ai-debug-chip--warning">
-                  <a-icon type="eye" style="font-size: 10px;" /> {{ aiDebugSummary.remaining_messages.length }} {{ $t('indicatorIde.toWatch') || 'to review' }}
-                </span>
-              </div>
-              <div v-if="aiDebugSummary.returned_text" class="ai-debug-card__body">
-                {{ aiDebugSummary.returned_text }}
-              </div>
-              <div v-if="aiDebugSummary.fixed_messages.length" class="ai-debug-card__group ai-debug-card__group--fixed">
-                <div class="ai-debug-card__group-label"><a-icon type="check-circle" /> {{ $t('indicatorIde.autoFixed') || 'Auto fixed' }}</div>
-                <div v-for="(msg, idx) in aiDebugSummary.fixed_messages" :key="`fixed-${idx}`" class="ai-debug-card__item">
-                  <span class="ai-debug-card__bullet ai-debug-card__bullet--green"></span>{{ msg }}
-                </div>
-              </div>
-              <div v-if="aiDebugSummary.remaining_messages.length" class="ai-debug-card__group ai-debug-card__group--remaining">
-                <div class="ai-debug-card__group-label"><a-icon type="warning" /> {{ $t('indicatorIde.needAttention') || 'Needs attention' }}</div>
-                <div v-for="(msg, idx) in aiDebugSummary.remaining_messages" :key="`remaining-${idx}`" class="ai-debug-card__item">
-                  <span class="ai-debug-card__bullet ai-debug-card__bullet--orange"></span>{{ msg }}
-                </div>
-              </div>
-            </div>
+              class="code-ai-resizer"
+              role="separator"
+              aria-orientation="horizontal"
+              tabindex="0"
+              :aria-valuenow="Math.round(codeAiSplitRatio)"
+              :title="$t('indicatorIde.aiCollaborate')"
+              @mousedown="startCodeAiResize"
+              @dblclick="resetCodeAiSplit"
+              @keydown.up.prevent="adjustCodeAiSplit(-3)"
+              @keydown.down.prevent="adjustCodeAiSplit(3)"
+            ><span class="code-ai-resizer__grip"></span></div>
 
-            <!-- AI Generation Panel -->
-            <div class="ai-gen-panel">
-              <div class="ai-gen-header" @click="aiPanelExpanded = !aiPanelExpanded">
-                <a-icon type="robot" />
-                <span>{{ $t('indicatorIde.aiGenerate') }}</span>
-                <a-icon :type="aiPanelExpanded ? 'up' : 'down'" style="margin-left: auto;" />
+            <div class="ai-workspace-section">
+
+              <div
+                v-if="aiDebugSummary"
+                class="ai-debug-card"
+                :class="`ai-debug-card--${aiDebugState()}`"
+              >
+                <div class="ai-debug-card__header">
+                  <div class="ai-debug-card__badge">
+                    <a-icon :type="aiDebugStateIcon()" />
+                  </div>
+                  <div class="ai-debug-card__headline">
+                    <span class="ai-debug-card__tag">{{ $t('indicatorIde.aiQaTag') || 'AI QA' }}</span>
+                    <span class="ai-debug-card__title">{{ aiDebugSummary.title }}</span>
+                  </div>
+                  <a-icon type="close" class="ai-debug-card__dismiss" @click="aiDebugSummary = null" />
+                </div>
+                <div class="ai-debug-card__chips">
+                  <span :class="['ai-debug-chip', `ai-debug-chip--${aiDebugState()}`]">{{ aiDebugStateLabel() }}</span>
+                  <span v-if="aiDebugSummary.fixed_messages.length" class="ai-debug-chip ai-debug-chip--success">
+                    <a-icon type="check" style="font-size: 10px;" /> {{ aiDebugSummary.fixed_messages.length }} {{ $t('indicatorIde.fixed') || 'fixed' }}
+                  </span>
+                  <span v-if="aiDebugSummary.remaining_messages.length" class="ai-debug-chip ai-debug-chip--warning">
+                    <a-icon type="eye" style="font-size: 10px;" /> {{ aiDebugSummary.remaining_messages.length }} {{ $t('indicatorIde.toWatch') || 'to review' }}
+                  </span>
+                </div>
+                <div v-if="aiDebugSummary.returned_text" class="ai-debug-card__body">
+                  {{ aiDebugSummary.returned_text }}
+                </div>
+                <div v-if="aiDebugSummary.fixed_messages.length" class="ai-debug-card__group ai-debug-card__group--fixed">
+                  <div class="ai-debug-card__group-label"><a-icon type="check-circle" /> {{ $t('indicatorIde.autoFixed') || 'Auto fixed' }}</div>
+                  <div v-for="(msg, idx) in aiDebugSummary.fixed_messages" :key="`fixed-${idx}`" class="ai-debug-card__item">
+                    <span class="ai-debug-card__bullet ai-debug-card__bullet--green"></span>{{ msg }}
+                  </div>
+                </div>
+                <div v-if="aiDebugSummary.remaining_messages.length" class="ai-debug-card__group ai-debug-card__group--remaining">
+                  <div class="ai-debug-card__group-label"><a-icon type="warning" /> {{ $t('indicatorIde.needAttention') || 'Needs attention' }}</div>
+                  <div v-for="(msg, idx) in aiDebugSummary.remaining_messages" :key="`remaining-${idx}`" class="ai-debug-card__item">
+                    <span class="ai-debug-card__bullet ai-debug-card__bullet--orange"></span>{{ msg }}
+                  </div>
+                </div>
               </div>
-              <div v-show="aiPanelExpanded" class="ai-gen-body">
-                <div class="ai-helper-tip">{{ $t('indicatorIde.aiAssistHint') }}</div>
-                <a-textarea
-                  v-model="aiPrompt"
-                  class="ai-prompt-input"
-                  :placeholder="$t('indicatorIde.aiPromptPlaceholder')"
-                  :rows="6"
-                  :disabled="aiGenerating || selectedIndicatorCodeHidden"
-                  style="resize: vertical;"
-                  @pressEnter="handleAIGenerateEnterKey"
-                />
-                <a-button
-                  type="primary"
-                  size="small"
-                  block
-                  :loading="aiGenerating"
-                  :disabled="selectedIndicatorCodeHidden"
-                  @click="handleAIGenerate"
-                  style="margin-top: 8px;"
-                >
-                  <a-icon v-if="!aiGenerating" type="robot" />
-                  {{ aiGenerating ? $t('indicatorIde.generating') : $t('indicatorIde.generateCode') }}
-                </a-button>
+
+              <!-- Indicator-bound AI collaboration workspace -->
+              <div ref="aiGeneratorPanel" class="ai-gen-panel">
+                <div class="ai-gen-header" @click="aiPanelExpanded = !aiPanelExpanded">
+                  <a-icon type="robot" />
+                  <span>{{ $t('indicatorIde.aiCollaborate') }}</span>
+                  <span v-if="selectedIndicatorId && !selectedIndicatorCodeHidden" class="ai-memory-badge">
+                    <a-icon type="link" /> {{ $t('indicatorIde.aiMemoryActive') }}
+                  </span>
+                  <a-button
+                    v-if="aiMessages.length || aiCandidate"
+                    type="link"
+                    size="small"
+                    class="ai-clear-button"
+                    :disabled="aiGenerating"
+                    @click.stop="clearAiWorkspace"
+                  >{{ $t('indicatorIde.aiClearConversation') }}</a-button>
+                  <a-icon :type="aiPanelExpanded ? 'up' : 'down'" style="margin-left: auto;" />
+                </div>
+                <div v-show="aiPanelExpanded" class="ai-gen-body">
+                  <div v-if="!selectedIndicatorId || selectedIndicatorCodeHidden" class="ai-workspace-blocked">
+                    <a-icon :type="selectedIndicatorCodeHidden ? 'lock' : 'save'" />
+                    <span>{{ selectedIndicatorCodeHidden ? $t('indicatorIde.aiHiddenSourceUnavailable') : $t('indicatorIde.aiNoSavedIndicator') }}</span>
+                  </div>
+                  <template v-else>
+                    <div ref="aiConversation" class="ai-conversation">
+                      <div v-if="aiWorkspaceLoading" class="ai-workspace-loading"><a-icon type="loading" spin /></div>
+                      <div v-else-if="!aiMessages.length" class="ai-conversation-empty">
+                        <a-icon type="message" />
+                        <strong>{{ $t('indicatorIde.aiConversationEmptyTitle') }}</strong>
+                        <span>{{ $t('indicatorIde.aiConversationEmptyDesc') }}</span>
+                        <div class="ai-quick-prompts">
+                          <button v-for="item in aiQuickPrompts" :key="item.label" type="button" @click="useAiQuickPrompt(item)">{{ item.label }}</button>
+                        </div>
+                      </div>
+                      <div
+                        v-for="messageItem in aiMessages"
+                        :key="messageItem.localId || messageItem.id"
+                        :class="[
+                          'ai-message',
+                          `ai-message--${messageItem.role || 'assistant'}`,
+                          { 'ai-message--has-candidate': isActiveAiCandidateMessage(messageItem) }
+                        ]"
+                      >
+                        <div class="ai-message__role">
+                          {{ messageItem.role === 'user' ? $t('indicatorIde.aiYou') : 'AI' }}
+                          <span v-if="messageItem.role !== 'user' && messageItem.message_type === 'discussion'" class="ai-message__badge">{{ $t('indicatorIde.aiDiscussionBadge') }}</span>
+                          <span v-else-if="messageItem.role !== 'user' && messageItem.message_type === 'candidate'" class="ai-message__badge ai-message__badge--candidate">{{ $t('indicatorIde.aiCandidateBadge') }}</span>
+                        </div>
+                        <div class="ai-message__content" v-html="renderAiMessage(messageItem.content)" />
+                        <div
+                          v-if="isActiveAiCandidateMessage(messageItem)"
+                          class="ai-message-candidate"
+                          :class="{ 'ai-message-candidate--warning': !aiCandidateValidationPassed }"
+                        >
+                          <div class="ai-message-candidate__status">
+                            <a-icon :type="aiCandidateValidationPassed ? 'check-circle' : 'exclamation-circle'" />
+                            <span>{{ aiCandidateValidationPassed ? $t('indicatorIde.aiCandidateValid') : $t('indicatorIde.aiCandidateNeedsReview') }}</span>
+                          </div>
+                          <div class="ai-candidate-actions">
+                            <a-button size="small" @click="previewAiCandidate"><a-icon type="eye" /> {{ $t('indicatorIde.aiPreview') }}</a-button>
+                            <a-button size="small" type="primary" @click="applyAiCandidate"><a-icon type="check" /> {{ $t('indicatorIde.aiApply') }}</a-button>
+                            <a-button size="small" type="link" @click="discardAiCandidate">{{ $t('indicatorIde.aiDiscard') }}</a-button>
+                          </div>
+                        </div>
+                      </div>
+                      <div v-if="aiGenerating" class="ai-message ai-message--assistant ai-message--thinking">
+                        <div class="ai-message__role">AI</div>
+                        <div class="ai-message__content"><a-icon type="loading" spin /> {{ $t('indicatorIde.aiThinking') }}</div>
+                      </div>
+                    </div>
+
+                    <div class="ai-composer">
+                      <a-textarea
+                        v-model="aiPrompt"
+                        class="ai-prompt-input"
+                        :placeholder="$t('indicatorIde.aiPromptPlaceholder')"
+                        :rows="3"
+                        :disabled="aiGenerating"
+                        @input="aiInteractionMode = 'auto'"
+                        @pressEnter="handleAIGenerateEnterKey"
+                      />
+                      <div class="ai-composer-toolbar">
+                        <span class="ai-composer-shortcut">{{ $t('indicatorIde.aiSendShortcut') }}</span>
+                        <a-button
+                          type="primary"
+                          class="ai-composer-send"
+                          :title="$t('indicatorIde.aiSend')"
+                          :loading="aiGenerating"
+                          :disabled="!aiPrompt.trim()"
+                          @click="handleAIGenerate"
+                        >
+                          <span v-if="!aiGenerating">{{ $t('indicatorIde.aiSend') }}</span>
+                        </a-button>
+                      </div>
+                    </div>
+                    <div class="ai-helper-tip">{{ $t('indicatorIde.aiSmartRoutingHint') }}</div>
+                  </template>
+                </div>
               </div>
             </div>
           </div>
@@ -245,20 +337,6 @@
                             <span>{{ $t('indicatorIde.aiConvertToStrategy') }}</span>
                           </a-button>
                         </span>
-                      </a-tooltip>
-                      <a-tooltip placement="bottomLeft">
-                        <template slot="title">
-                          {{ quickTradeDrawerVisible ? $t('indicatorIde.hideQuickTrade') : $t('indicatorIde.showQuickTrade') }}
-                        </template>
-                        <a-button
-                          class="chart-panel-qt-btn"
-                          size="small"
-                          :type="quickTradeDrawerVisible ? 'primary' : 'default'"
-                          @click="toggleQuickTradeDrawer"
-                        >
-                          <a-icon type="thunderbolt" theme="filled" />
-                          <span class="chart-panel-qt-label">{{ $t('quickTrade.title') }}</span>
-                        </a-button>
                       </a-tooltip>
                       <a-tooltip :title="chartFullscreen ? $t('indicatorIde.exitFullscreen') : $t('indicatorIde.fullscreenChart')">
                         <a-button size="small" class="chart-panel-fs-btn" @click="toggleChartFullscreen"><a-icon :type="chartFullscreen ? 'fullscreen-exit' : 'fullscreen'" /></a-button>
@@ -420,21 +498,33 @@
                   />
                 </div>
               </div>
-              <div v-show="quickTradeDrawerVisible" class="ide-quick-right ide-quick-right--chart-fs">
-                <div class="ide-quick-panel-head">
-                  <span class="ide-quick-panel-head-title">
-                    <a-icon type="thunderbolt" theme="filled" class="ide-quick-panel-head-icon" />
-                    {{ $t('quickTrade.title') }}
+              <div
+                class="ide-quick-bottom ide-quick-bottom--chart-fs"
+                :class="{ 'ide-quick-bottom--collapsed': !quickTradeDrawerVisible }"
+              >
+                <button
+                  type="button"
+                  class="ide-quick-panel-head"
+                  :aria-expanded="quickTradeDrawerVisible ? 'true' : 'false'"
+                  @click="toggleQuickTradeDrawer"
+                >
+                  <div class="ide-quick-panel-head-copy">
+                    <span class="ide-quick-panel-head-title">
+                      <a-icon type="thunderbolt" theme="filled" class="ide-quick-panel-head-icon" />
+                      {{ $t('quickTrade.title') }}
+                    </span>
+                    <span class="ide-quick-panel-head-meta">{{ qtSymbol }} · {{ market === 'Crypto' ? cryptoMarketType.toUpperCase() : 'SPOT' }}</span>
+                  </div>
+                  <span class="ide-quick-panel-toggle" :title="quickTradeDrawerVisible ? $t('indicatorIde.hideQuickTrade') : $t('indicatorIde.showQuickTrade')">
+                    <a-icon :type="quickTradeDrawerVisible ? 'down' : 'up'" />
                   </span>
-                  <a-button type="link" size="small" class="ide-quick-panel-close" @click="closeQuickTradeDrawer">
-                    <a-icon type="close" />
-                  </a-button>
-                </div>
-                <div class="ide-quick-panel-body">
+                </button>
+                <div v-if="quickTradeDrawerVisible" class="ide-quick-panel-body">
                   <quick-trade-panel
                     key="ide-embedded-qt"
                     embedded
                     embedded-ide
+                    embedded-dock
                     :visible="true"
                     :symbol="qtSymbol"
                     :preset-side="qtSide"
@@ -931,6 +1021,21 @@
         @pressEnter="confirmSaveAsIndicator"
       />
     </a-modal>
+    <a-modal
+      :title="$t('indicatorIde.aiCandidatePreviewTitle')"
+      :visible="aiPreviewVisible"
+      :footer="null"
+      width="760px"
+      :get-container="ideModalGetContainer"
+      :wrap-class-name="isDarkTheme ? 'ide-modal-wrap ide-modal-wrap--dark ai-candidate-preview-modal' : 'ide-modal-wrap ai-candidate-preview-modal'"
+      @cancel="aiPreviewVisible = false"
+    >
+      <div class="ai-preview-toolbar">
+        <span>{{ $t('indicatorIde.aiPreviewHint') }}</span>
+        <a-button size="small" type="primary" @click="applyAiCandidate">{{ $t('indicatorIde.aiApply') }}</a-button>
+      </div>
+      <pre class="ai-candidate-code-preview">{{ (aiCandidate && aiCandidate.code) || '' }}</pre>
+    </a-modal>
   </div>
 </template>
 
@@ -955,6 +1060,7 @@ import { getNotificationSettings } from '@/api/user'
 import { getWatchlist, addWatchlist, searchSymbols } from '@/api/market'
 import { getPublicSettingsConfig } from '@/api/settings'
 import { extractIndicatorSignalLabels } from '@/utils/indicatorSignalOptions'
+import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import KlineChart from '@/views/indicator-analysis/components/KlineChart.vue'
 import QuickTradePanel from '@/components/QuickTradePanel/QuickTradePanel'
 import { Modal } from 'ant-design-vue'
@@ -1025,7 +1131,7 @@ export default {
 
       activeIndicators: [],
       chartIndicatorRunning: true,
-      quickTradeDrawerVisible: false,
+      quickTradeDrawerVisible: true,
       paramDrawerVisible: false,
       indicatorParamOverrides: {},
       indicatorParamDraft: {},
@@ -1066,7 +1172,15 @@ export default {
       // AI generation
       aiPanelExpanded: true,
       aiPrompt: '',
+      aiInteractionMode: 'auto',
       aiGenerating: false,
+      aiWorkspaceLoading: false,
+      aiMessages: [],
+      aiThread: null,
+      aiCandidate: null,
+      aiPreviewVisible: false,
+      aiRequestBaseCode: '',
+      aiWorkspaceLoadToken: 0,
       aiDebugSummary: null,
       ideAiTipIndex: 0,
       ideAiTipTimer: null,
@@ -1080,6 +1194,9 @@ export default {
       ],
       codeQualityHints: [],
       codeQualityLoading: false,
+      codeQualityChecked: false,
+      codeAiSplitRatio: 58,
+      codeAiResizing: false,
 
       // Quick Trade drawer reuse
       qtSymbol: 'BTC/USDT',
@@ -1131,8 +1248,39 @@ export default {
         (a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9)
       )
     },
+    codeQualityTopStatusClass () {
+      const severity = String((this.sortedCodeQualityHints[0] && this.sortedCodeQualityHints[0].severity) || 'info').toLowerCase()
+      return {
+        'code-quality-top-status--error': severity === 'error' || severity === 'fatal',
+        'code-quality-top-status--warn': severity === 'warn' || severity === 'warning',
+        'code-quality-top-status--info': !['error', 'fatal', 'warn', 'warning'].includes(severity)
+      }
+    },
+    codeQualityTopStatusIcon () {
+      const severity = String((this.sortedCodeQualityHints[0] && this.sortedCodeQualityHints[0].severity) || 'info').toLowerCase()
+      if (severity === 'error' || severity === 'fatal') return 'close-circle'
+      if (severity === 'warn' || severity === 'warning') return 'exclamation-circle'
+      return 'info-circle'
+    },
+    codeQualityTopStatusText () {
+      const first = this.sortedCodeQualityHints[0]
+      if (!first) return this.$t('indicatorIde.codeQualityAllGood')
+      const suffix = this.sortedCodeQualityHints.length > 1 ? ` (+${this.sortedCodeQualityHints.length - 1})` : ''
+      return `${this.formatQualityHint(first)}${suffix}`
+    },
     ideAiCurrentTip () {
       return this.ideAiTips[this.ideAiTipIndex] || ''
+    },
+    aiQuickPrompts () {
+      return [
+        { label: this.$t('indicatorIde.aiQuickExplain'), mode: 'discussion' },
+        { label: this.$t('indicatorIde.aiQuickParameters'), mode: 'modify' },
+        { label: this.$t('indicatorIde.aiQuickSignals'), mode: 'modify' },
+        { label: this.$t('indicatorIde.aiQuickVisuals'), mode: 'modify' }
+      ]
+    },
+    aiCandidateValidationPassed () {
+      return !!(this.aiCandidate && this.aiCandidate.validation && this.aiCandidate.validation.success)
     },
     isDarkTheme () {
       return this.navTheme === 'dark' || this.navTheme === 'realdark'
@@ -1236,7 +1384,22 @@ export default {
       this.applyIdeOverlayContainers()
     })
   },
+  activated () {
+    if (this._saveShortcutListener) {
+      window.addEventListener('keydown', this._saveShortcutListener)
+    }
+    this.$nextTick(() => {
+      this.ensureChartReady()
+      this.applyIdeOverlayContainers()
+    })
+  },
+  deactivated () {
+    if (this._saveShortcutListener) {
+      window.removeEventListener('keydown', this._saveShortcutListener)
+    }
+  },
   beforeDestroy () {
+    this.stopCodeAiResize()
     if (this._persistIdeUiTimer) {
       clearTimeout(this._persistIdeUiTimer)
       this._persistIdeUiTimer = null
@@ -1263,6 +1426,46 @@ export default {
     } catch (_) {}
   },
   methods: {
+    adjustCodeAiSplit (delta) {
+      const next = Number(this.codeAiSplitRatio || 58) + Number(delta || 0)
+      this.codeAiSplitRatio = Math.max(28, Math.min(76, next))
+      this.refreshEditorAfterSplit()
+    },
+    resetCodeAiSplit () {
+      this.codeAiSplitRatio = 58
+      this.refreshEditorAfterSplit()
+    },
+    refreshEditorAfterSplit () {
+      this.$nextTick(() => {
+        if (this.cmInstance) this.cmInstance.refresh()
+      })
+    },
+    startCodeAiResize (event) {
+      if (event && event.button !== 0) return
+      const container = this.$refs.codePanelBody
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      if (!rect.height) return
+      if (event) event.preventDefault()
+      this.codeAiResizing = true
+      this._codeAiResizeMove = (moveEvent) => {
+        const raw = ((moveEvent.clientY - rect.top) / rect.height) * 100
+        this.codeAiSplitRatio = Math.max(28, Math.min(76, raw))
+        this.refreshEditorAfterSplit()
+      }
+      this._codeAiResizeEnd = () => this.stopCodeAiResize()
+      document.body.classList.add('qd-code-ai-resizing')
+      window.addEventListener('mousemove', this._codeAiResizeMove)
+      window.addEventListener('mouseup', this._codeAiResizeEnd, { once: true })
+    },
+    stopCodeAiResize () {
+      if (this._codeAiResizeMove) window.removeEventListener('mousemove', this._codeAiResizeMove)
+      if (this._codeAiResizeEnd) window.removeEventListener('mouseup', this._codeAiResizeEnd)
+      this._codeAiResizeMove = null
+      this._codeAiResizeEnd = null
+      this.codeAiResizing = false
+      if (typeof document !== 'undefined') document.body.classList.remove('qd-code-ai-resizing')
+    },
     toggleCodeDrawer () {
       this.codeDrawerVisible = !this.codeDrawerVisible
     },
@@ -1586,6 +1789,8 @@ export default {
         if (val !== this.currentCode) {
           this.currentCode = val
           this.codeDirty = true
+          this.codeQualityChecked = false
+          this.codeQualityHints = []
         }
       })
       this.cmInstance.refresh()
@@ -2044,6 +2249,7 @@ export default {
         }
         this.syncSelectedIndicatorToChart()
         this.resetIndicatorParamDraft(true)
+        this.loadAiWorkspace(id)
       } else {
         this.currentCode = ''
         this.codeDirty = false
@@ -2053,6 +2259,7 @@ export default {
         }
         this.syncSelectedIndicatorToChart()
         this.indicatorParamDraft = {}
+        this.resetAiWorkspaceState()
       }
       this.$nextTick(() => this.applyCodeMirrorReadOnly())
     },
@@ -2586,34 +2793,213 @@ export default {
     },
 
     handleAIGenerateEnterKey (e) {
-      if (e.ctrlKey || e.metaKey) this.handleAIGenerate()
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        const target = e.target
+        if (!target || typeof target.selectionStart !== 'number') {
+          this.aiPrompt = `${this.aiPrompt || ''}\n`
+          return
+        }
+        const start = target.selectionStart
+        const end = target.selectionEnd
+        const prompt = this.aiPrompt || ''
+        this.aiPrompt = `${prompt.slice(0, start)}\n${prompt.slice(end)}`
+        this.$nextTick(() => {
+          target.selectionStart = start + 1
+          target.selectionEnd = start + 1
+        })
+        return
+      }
+      e.preventDefault()
+      if (!this.aiGenerating && this.aiPrompt && this.aiPrompt.trim()) this.handleAIGenerate()
+    },
+    resetAiWorkspaceState () {
+      this.aiWorkspaceLoadToken += 1
+      this.aiWorkspaceLoading = false
+      this.aiMessages = []
+      this.aiThread = null
+      this.aiCandidate = null
+      this.aiPreviewVisible = false
+      this.aiRequestBaseCode = ''
+      this.aiDebugSummary = null
+    },
+    async loadAiWorkspace (indicatorId) {
+      const id = Number(indicatorId)
+      const indicator = this.indicators.find(item => Number(item.id) === id)
+      if (!id || !indicator || this.isIndicatorCodeHidden(indicator)) {
+        this.resetAiWorkspaceState()
+        return
+      }
+      const token = ++this.aiWorkspaceLoadToken
+      this.aiWorkspaceLoading = true
+      this.aiMessages = []
+      this.aiThread = null
+      this.aiCandidate = null
+      try {
+        const res = await request({ url: `/api/indicator/aiWorkspace/${id}`, method: 'get' })
+        if (token !== this.aiWorkspaceLoadToken || Number(this.selectedIndicatorId) !== id) return
+        if (res && res.code === 1 && res.data) {
+          this.aiThread = res.data.thread || null
+          this.aiMessages = Array.isArray(res.data.messages) ? res.data.messages : []
+          const candidate = res.data.candidate
+          if (candidate && candidate.candidate_code) {
+            this.aiCandidate = {
+              id: candidate.id,
+              code: candidate.candidate_code,
+              baseCodeHash: candidate.base_code_hash || '',
+              baseCodeMatchesCurrent: candidate.base_code_matches_current !== false,
+              validation: candidate.validation || {},
+              summary: candidate.summary || {}
+            }
+          }
+          this.$nextTick(this.scrollAiConversationToBottom)
+        }
+      } catch (e) {
+        if (token === this.aiWorkspaceLoadToken) {
+          this.$message.error((e && e.message) || this.$t('indicatorIde.aiWorkspaceLoadFailed'))
+        }
+      } finally {
+        if (token === this.aiWorkspaceLoadToken) this.aiWorkspaceLoading = false
+      }
+    },
+    scrollAiConversationToBottom () {
+      const el = this.$refs.aiConversation
+      if (el) el.scrollTop = el.scrollHeight
+    },
+    isActiveAiCandidateMessage (messageItem) {
+      if (!this.aiCandidate || !messageItem || messageItem.role === 'user' || messageItem.message_type !== 'candidate') return false
+      const candidateMessages = this.aiMessages.filter(item => item && item.role !== 'user' && item.message_type === 'candidate')
+      const latestCandidateMessage = candidateMessages[candidateMessages.length - 1]
+      const messageChangeId = Number(messageItem.change_id || 0)
+      const candidateId = Number(this.aiCandidate.id || 0)
+      if (messageChangeId && candidateId && messageChangeId === candidateId) return true
+      return latestCandidateMessage === messageItem
+    },
+    useAiQuickPrompt (item) {
+      const prompt = item && typeof item === 'object' ? item.label : item
+      this.aiPrompt = String(prompt || '')
+      this.aiInteractionMode = (item && item.mode) || 'auto'
+      this.$nextTick(() => {
+        const input = this.$el && this.$el.querySelector('.ai-prompt-input textarea')
+        if (input) input.focus()
+      })
+    },
+    clearAiWorkspace () {
+      if (!this.selectedIndicatorId) return
+      Modal.confirm({
+        title: this.$t('indicatorIde.aiClearConversation'),
+        content: this.$t('indicatorIde.aiClearConversationConfirm'),
+        okText: this.$t('indicatorIde.aiClearConversation'),
+        cancelText: this.$t('dashboard.indicator.editor.cancel'),
+        getContainer: () => this.resolveIdeFullscreenMountNode() || document.body,
+        onOk: async () => {
+          const res = await request({ url: `/api/indicator/aiWorkspace/${this.selectedIndicatorId}`, method: 'delete' })
+          if (res && res.code === 1) {
+            this.aiMessages = []
+            this.aiCandidate = null
+            this.aiThread = null
+            this.aiDebugSummary = null
+          }
+        }
+      })
+    },
+    previewAiCandidate () {
+      if (!this.aiCandidate || !this.aiCandidate.code) return
+      this.aiPreviewVisible = true
+      this.syncSelectedIndicatorToChart(this.aiCandidate.code)
+      this.$message.info(this.$t('indicatorIde.aiPreviewing'))
+    },
+    applyAiCandidate () {
+      if (!this.aiCandidate || !this.aiCandidate.code) return
+      const currentEditorCode = this.cmInstance ? this.cmInstance.getValue() : this.currentCode
+      const changedSinceRequest = this.aiCandidate.baseCodeMatchesCurrent === false ||
+        (!!this.codeDirty && (!this.aiCandidate.baseCode || currentEditorCode !== this.aiCandidate.baseCode))
+      if (changedSinceRequest) {
+        Modal.confirm({
+          title: this.$t('indicatorIde.aiEditorChangedTitle'),
+          content: this.$t('indicatorIde.aiEditorChangedDesc'),
+          okText: this.$t('indicatorIde.aiApply'),
+          cancelText: this.$t('dashboard.indicator.editor.cancel'),
+          getContainer: () => this.resolveIdeFullscreenMountNode() || document.body,
+          onOk: () => this.applyAiCandidateCode()
+        })
+        return
+      }
+      this.applyAiCandidateCode()
+    },
+    async applyAiCandidateCode () {
+      const candidate = this.aiCandidate
+      if (!candidate || !candidate.code) return
+      if (this.cmInstance) {
+        this.cmInstance.setValue(candidate.code)
+        this.cmInstance.refresh()
+      }
+      this.currentCode = candidate.code
+      this.codeDirty = true
+      this.aiPreviewVisible = false
+      this.syncSelectedIndicatorToChart(candidate.code)
+      await this.fetchCodeQualityHints(candidate.code)
+      if (candidate.id) {
+        request({
+          url: `/api/indicator/aiWorkspace/changes/${candidate.id}/status`,
+          method: 'post',
+          data: { status: 'applied' }
+        }).catch(() => {})
+      }
+      this.aiCandidate = null
+      this.$message.success(this.$t('indicatorIde.aiApplied'))
+    },
+    async discardAiCandidate () {
+      const candidate = this.aiCandidate
+      if (!candidate) return
+      if (candidate.id) {
+        try {
+          await request({
+            url: `/api/indicator/aiWorkspace/changes/${candidate.id}/status`,
+            method: 'post',
+            data: { status: 'discarded' }
+          })
+        } catch (e) {}
+      }
+      this.aiCandidate = null
+      this.aiPreviewVisible = false
+      this.syncSelectedIndicatorToChart(this.currentCode)
     },
     async handleAIGenerate () {
       if (this.selectedIndicatorCodeHidden) {
         this.$message.warning(this.$t('indicatorIde.saveBlockedHiddenCode'))
         return
       }
+      if (!this.selectedIndicatorId) {
+        this.$message.warning(this.$t('indicatorIde.aiNoSavedIndicator'))
+        return
+      }
       if (!this.aiPrompt || !this.aiPrompt.trim()) {
         this.$message.warning(this.$t('indicatorIde.aiPromptRequired'))
         return
       }
+      const userPrompt = this.aiPrompt.trim()
+      const requestMode = this.aiInteractionMode || 'auto'
       this.aiGenerating = true
       this.aiDebugSummary = null
       let existingCode = ''
       if (this.cmInstance) existingCode = this.cmInstance.getValue() || ''
-      if (this.cmInstance) {
-        this.cmInstance.setValue('# AI generating...\n')
-        this.cmInstance.refresh()
-      }
+      this.aiRequestBaseCode = existingCode
+      this.aiMessages.push({ role: 'user', content: userPrompt, message_type: requestMode === 'modify' ? 'change_request' : 'question', localId: `user-${Date.now()}` })
+      this.aiPrompt = ''
+      this.aiInteractionMode = 'auto'
+      this.$nextTick(this.scrollAiConversationToBottom)
       let generatedCode = ''
+      let workspaceMeta = null
       try {
         const url = '/api/indicator/aiGenerate'
         const token = storage.get(ACCESS_TOKEN)
         const lang = (this.$i18n && this.$i18n.locale) || 'en-US'
         const paramDefaults = this.parseIndicatorParamRaw(existingCode || this.currentCode || '')
         const requestBody = {
-          prompt: this.aiPrompt.trim(),
+          prompt: userPrompt,
           source: 'indicator_ide',
+          interactionMode: requestMode,
           context: {
             source: 'indicator_ide',
             market: this.market || '',
@@ -2668,14 +3054,9 @@ export default {
               if (json.debug && json.debug.human_summary) {
                 this.aiDebugSummary = this.normalizeAiDebugSummary(json.debug.human_summary)
               }
+              if (json.workspace) workspaceMeta = json.workspace
               if (json.content) {
                 generatedCode += json.content
-                const cleanedCode = this.cleanMarkdownCodeBlocks(generatedCode)
-                if (this.cmInstance) {
-                  this.cmInstance.setValue(cleanedCode)
-                  this.cmInstance.setCursor({ line: this.cmInstance.lineCount() - 1, ch: 0 })
-                  this.cmInstance.refresh()
-                }
               }
             } catch (err) {
               if (err instanceof Error && err.message) {
@@ -2684,22 +3065,42 @@ export default {
             }
           }
         }
-        if (this.cmInstance && generatedCode) {
-          const cleanedCode = this.cleanMarkdownCodeBlocks(generatedCode)
-          this.cmInstance.setValue(cleanedCode)
-          this.cmInstance.refresh()
-          this.currentCode = cleanedCode
-          this.codeDirty = true
-          this.syncSelectedIndicatorToChart(cleanedCode)
-          this.$message.success(this.$t('indicatorIde.aiGenerateSuccess'))
-          await this.fetchCodeQualityHints(cleanedCode)
-          if (this.codeQualityHints.some(h => h.severity === 'error')) {
+        const replyType = (workspaceMeta && workspaceMeta.reply_type) || 'candidate'
+        if (replyType === 'discussion') {
+          const assistantMessage = workspaceMeta && workspaceMeta.assistant_message
+          const answer = (assistantMessage && assistantMessage.content) || generatedCode.trim()
+          if (answer) {
+            this.aiMessages.push(assistantMessage || {
+              role: 'assistant',
+              content: answer,
+              message_type: 'discussion',
+              localId: `assistant-${Date.now()}`
+            })
             this.aiPanelExpanded = true
-            this.$message.warning(this.$t('indicatorIde.codeQualityHasErrors'))
-          } else if (this.codeQualityHints.length) {
-            this.aiPanelExpanded = true
-            this.$message.info(this.$t('indicatorIde.codeQualityHasSuggestions'))
+            this.$nextTick(this.scrollAiConversationToBottom)
+          } else {
+            this.$message.warning(this.$t('indicatorIde.aiNoAnswer'))
           }
+        } else if (generatedCode) {
+          const cleanedCode = this.cleanMarkdownCodeBlocks(generatedCode)
+          const assistantMessage = workspaceMeta && workspaceMeta.assistant_message
+          this.aiMessages.push(assistantMessage || {
+            role: 'assistant',
+            content: this.$t('indicatorIde.aiCandidateAssistantText'),
+            message_type: 'candidate',
+            localId: `assistant-${Date.now()}`
+          })
+          this.aiCandidate = {
+            id: workspaceMeta && workspaceMeta.change_id,
+            code: cleanedCode,
+            baseCode: existingCode,
+            baseCodeHash: (workspaceMeta && workspaceMeta.base_code_hash) || '',
+            validation: (workspaceMeta && workspaceMeta.validation) || {},
+            summary: (workspaceMeta && workspaceMeta.summary) || {}
+          }
+          this.aiPanelExpanded = true
+          this.$message.success(this.$t('indicatorIde.aiCandidateReady'))
+          this.$nextTick(this.scrollAiConversationToBottom)
         } else if (!generatedCode) {
           this.$message.warning(this.$t('indicatorIde.aiNoCode'))
         }
@@ -2710,15 +3111,14 @@ export default {
         } else {
           this.$message.error(errMsg)
         }
-        if (generatedCode && this.cmInstance) {
-          this.cmInstance.setValue(this.cleanMarkdownCodeBlocks(generatedCode))
-        } else if (this.cmInstance) {
-          this.cmInstance.setValue(existingCode || '')
-          this.cmInstance.refresh()
-        }
+        this.aiMessages.push({ role: 'assistant', content: errMsg, localId: `error-${Date.now()}` })
+        this.$nextTick(this.scrollAiConversationToBottom)
       } finally {
         this.aiGenerating = false
       }
+    },
+    renderAiMessage (value) {
+      return renderSafeMarkdown(value)
     },
     normalizeAiDebugSummary (summary) {
       if (!summary || typeof summary !== 'object') return null
@@ -2809,13 +3209,16 @@ export default {
       const c = (code != null ? String(code) : '').trim()
       if (!c) {
         this.codeQualityHints = []
+        this.codeQualityChecked = false
         return
       }
       this.codeQualityLoading = true
       try {
         this.codeQualityHints = await this.requestCodeQualityHints(c)
+        this.codeQualityChecked = true
       } catch (e) {
         this.codeQualityHints = []
+        this.codeQualityChecked = false
       } finally {
         this.codeQualityLoading = false
       }
@@ -2824,6 +3227,7 @@ export default {
       const c = (code != null ? String(code) : '').trim()
       if (!c) {
         this.codeQualityHints = [{ severity: 'error', code: 'EMPTY_CODE', params: {} }]
+        this.codeQualityChecked = true
         this.codeDrawerVisible = true
         this.codePanelExpanded = true
         this.$message.error(this.$t('indicatorIde.publishQualityBlockedWithReason', { reason: this.formatQualityHint(this.codeQualityHints[0]) }))
@@ -2832,7 +3236,9 @@ export default {
       this.codeQualityLoading = true
       try {
         this.codeQualityHints = await this.requestCodeQualityHints(c)
+        this.codeQualityChecked = true
       } catch (e) {
+        this.codeQualityChecked = false
         this.$message.error(this.$t('indicatorIde.publishQualityCheckFailed') + (e && e.message ? `: ${e.message}` : ''))
         return false
       } finally {
@@ -2891,19 +3297,6 @@ export default {
         this.qtPrice = 0
       }
       this.quickTradeDrawerVisible = !this.quickTradeDrawerVisible
-    },
-    closeQuickTradeDrawer () {
-      this.quickTradeDrawerVisible = false
-    },
-    openQuickTrade () {
-      if (!this.isQuickTradeMarketSupported()) {
-        this.$message.warning(this.$t('quickTrade.unsupportedMarket'))
-        return
-      }
-      this.qtSymbol = this.symbol || ''
-      this.qtPrice = 0
-      this.qtSide = ''
-      this.quickTradeDrawerVisible = true
     },
     onQuickTradeSuccess () {
       this.$message.success(this.$t('quickTrade.orderSuccess'))
@@ -2988,15 +3381,13 @@ export default {
               this.chartVisibleIndicatorIds = [...this.chartVisibleIndicatorIds, tid]
             }
             this.selectedIndicatorId = targetId
-            this.currentCode = code
-            this.codeDirty = false
-            if (this.cmInstance) {
-              this.cmInstance.setValue(code)
-              this.cmInstance.refresh()
-            }
-            this.syncSelectedIndicatorToChart(code)
             const ind = this.indicators.find(i => i.id === targetId)
             if (ind) ind.code = code
+            // A newly-created indicator owns a fresh AI workspace. Select and
+            // load it immediately so the previous indicator's conversation can
+            // never remain visible until a manual save/reselect cycle.
+            this.onIndicatorChange(targetId)
+            this.aiPanelExpanded = true
             this.$message.success(this.$t('indicatorIde.newIndicatorCreated'))
           } else {
             this.$message.error(this.$t('indicatorIde.newIndicatorFailed'))
@@ -3392,7 +3783,8 @@ export default {
     selectedIndicatorIsPurchased () {
       this.$nextTick(() => this.applyCodeMirrorReadOnly())
     },
-    selectedIndicatorCodeHidden () {
+    selectedIndicatorCodeHidden (hidden) {
+      if (hidden) this.resetAiWorkspaceState()
       this.$nextTick(() => this.applyCodeMirrorReadOnly())
     },
     isDarkTheme () {
@@ -3447,10 +3839,12 @@ export default {
 .indicator-ide {
   display: flex;
   flex-direction: column;
-  min-height: var(--ide-shell-height, calc(100vh - 64px));
-  height: auto;
+  height: var(--ide-shell-height, calc(100vh - 64px));
+  min-height: 0;
+  max-height: var(--ide-shell-height, calc(100vh - 64px));
   width: 100%;
   padding: 0;
+  overflow: hidden;
   background: #fff;
   box-sizing: border-box;
 }
@@ -3496,24 +3890,6 @@ export default {
     border-color: var(--primary-color, @primary-color) !important;
     color: var(--primary-color, @primary-color) !important;
   }
-}
-.chart-panel-qt-btn {
-  border-radius: 8px !important;
-  font-weight: 600;
-  display: inline-flex !important;
-  align-items: center;
-  gap: 4px;
-  height: 28px !important;
-  padding: 0 10px !important;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-}
-.chart-panel-qt-label {
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  max-width: 88px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 @media (max-width: 1180px) {
   .chart-panel-action-btn {
@@ -4007,7 +4383,7 @@ body.dark .ide-signal-alert-modal-wrap {
 }
 
 // ===== Main =====
-.ide-main { display: flex; flex: 1 1 auto; overflow: visible; min-height: 0; align-items: stretch; }
+.ide-main { display: flex; flex: 1 1 auto; overflow: hidden; min-height: 0; align-items: stretch; }
 
 .ide-code-rail {
   flex: 0 0 34px;
@@ -4074,11 +4450,11 @@ body.dark .ide-signal-alert-modal-wrap {
 }
 
 .ide-left {
-  width: 30%;
-  min-width: 280px;
-  max-width: 400px;
-  height: calc(var(--ide-shell-height, calc(100vh - 64px)) - 8px);
-  max-height: calc(var(--ide-shell-height, calc(100vh - 64px)) - 8px);
+  width: 38%;
+  min-width: 420px;
+  max-width: 600px;
+  height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -4111,7 +4487,23 @@ body.dark .ide-signal-alert-modal-wrap {
   overflow: hidden;
   &.collapsed { flex: 0 0 auto; }
 }
-.code-panel-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.code-panel-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  &.is-resizing { user-select: none; }
+}
+.code-editor-section {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+  max-height: calc(100% - 250px);
+  overflow: hidden;
+}
 .code-editor-wrapper { flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column; }
 .code-hidden-mask {
   position: absolute;
@@ -4464,20 +4856,69 @@ body.dark .ide-signal-alert-modal-wrap {
 .ide-guide-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 10px;
   padding: 5px 12px;
   font-size: 11px;
   color: #8c8c8c;
   background: #f8f9fb;
   border-bottom: 1px solid #f0f0f0;
   flex-shrink: 0;
-  > .anticon { color: #bfbfbf; font-size: 12px; }
+}
+.ide-guide-copy,
+.ide-guide-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+.ide-guide-copy {
+  overflow: hidden;
+  > .anticon { flex: 0 0 auto; color: #bfbfbf; font-size: 12px; }
+  > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.ide-guide-actions { flex: 0 0 auto; }
+.code-quality-top-button {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  height: 24px !important;
+  padding: 0 8px !important;
+  border-radius: 8px !important;
+  color: #475569 !important;
+  font-size: 10px !important;
+}
+.code-quality-top-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 190px;
+  height: 22px;
+  padding: 0 7px;
+  overflow: hidden;
+  border: 1px solid #d9d9d9;
+  border-radius: 999px;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: help;
+  > span { overflow: hidden; text-overflow: ellipsis; }
+}
+.code-quality-top-status--success { color: #389e0d; border-color: #b7eb8f; background: #f6ffed; }
+.code-quality-top-status--error { color: #cf1322; border-color: #ffa39e; background: #fff1f0; }
+.code-quality-top-status--warn { color: #d46b08; border-color: #ffd591; background: #fff7e6; }
+.code-quality-top-status--info { color: #096dd9; border-color: #91d5ff; background: #e6f7ff; }
+.code-quality-popover-list {
+  max-width: 420px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 11px;
+  line-height: 1.6;
+  li + li { margin-top: 4px; }
 }
 .ide-guide-link {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: auto;
   padding: 1px 8px;
   font-size: 11px;
   font-weight: 500;
@@ -4493,6 +4934,46 @@ body.dark .ide-signal-alert-modal-wrap {
     background: var(--primary-color, #1890ff);
     border-color: var(--primary-color, #1890ff);
   }
+}
+
+.code-ai-resizer {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid #edf0f4;
+  border-bottom: 1px solid #edf0f4;
+  outline: none;
+  background: #f8fafc;
+  cursor: row-resize;
+  transition: border-color 0.15s, background 0.15s;
+  &:hover,
+  &:focus,
+  .is-resizing & {
+    border-color: color-mix(in srgb, var(--primary-color, #1890ff) 42%, #dbe3ec);
+    background: color-mix(in srgb, var(--primary-color, #1890ff) 8%, #fff);
+  }
+}
+.code-ai-resizer__grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 38px;
+  height: 3px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 -3px 0 rgba(203, 213, 225, 0.55), 0 3px 0 rgba(203, 213, 225, 0.55);
+}
+.ai-workspace-section {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;
+  overflow: hidden;
+  background: #fafbfc;
 }
 
 // ===== Code Editor Scrollbar =====
@@ -4517,7 +4998,13 @@ body.dark .ide-signal-alert-modal-wrap {
 }
 
 // ===== AI Panel =====
-.ai-gen-panel { flex-shrink: 0; border-top: 1px solid #eee; }
+.ai-gen-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
 .ai-gen-header {
   display: flex;
   align-items: center;
@@ -4531,61 +5018,220 @@ body.dark .ide-signal-alert-modal-wrap {
   transition: background 0.15s;
   &:hover { background: #f5f7fa; }
 }
-.ai-gen-body { padding: 8px 10px 10px; }
-.ai-gen-body ::v-deep .ai-prompt-input textarea {
-  min-height: 132px;
+.ai-gen-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 10px 10px;
+  overflow: hidden;
+  background: #fafbfc;
+}
+.ai-memory-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #389e0d;
+  background: #f6ffed;
+  border: 1px solid #d9f7be;
+  font-size: 10px;
+  font-weight: 500;
+}
+.ai-clear-button { height: 20px !important; padding: 0 3px !important; font-size: 10px !important; }
+.ai-conversation {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 120px;
+  max-height: none;
+  padding: 10px;
+  overflow-y: auto;
+  resize: none;
+  border: 1px solid #e5e9f0;
+  border-radius: 10px;
+  background: #fff;
+  scrollbar-width: thin;
+}
+.ai-workspace-loading,
+.ai-conversation-empty,
+.ai-workspace-blocked {
+  min-height: 112px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #8491a5;
+  text-align: center;
+  font-size: 11px;
+}
+.ai-conversation-empty > .anticon,
+.ai-workspace-blocked > .anticon { font-size: 22px; color: var(--primary-color, #52c41a); }
+.ai-conversation-empty strong { color: #25324a; font-size: 12px; }
+.ai-quick-prompts { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; margin-top: 4px; }
+.ai-quick-prompts button {
+  padding: 3px 7px;
+  border: 1px solid #dce3ec;
+  border-radius: 999px;
+  color: #526079;
+  background: #fff;
+  font-size: 10px;
+  cursor: pointer;
+  &:hover { color: var(--primary-color, #52c41a); border-color: var(--primary-color, #52c41a); }
+}
+.ai-message { max-width: 92%; margin-bottom: 10px; }
+.ai-message--user { margin-left: auto; }
+.ai-message__role { margin: 0 4px 3px; color: #96a0b2; font-size: 9px; }
+.ai-message--user .ai-message__role { text-align: right; }
+.ai-message__content {
+  padding: 8px 10px;
+  border-radius: 10px 10px 10px 3px;
+  color: #354056;
+  background: #f1f4f8;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: normal;
+  word-break: break-word;
+}
+.ai-message__content ::v-deep p { margin: 0 0 7px; }
+.ai-message__content ::v-deep p:last-child { margin-bottom: 0; }
+.ai-message__content ::v-deep h3,
+.ai-message__content ::v-deep h4,
+.ai-message__content ::v-deep h5 { margin: 9px 0 4px; color: inherit; font-size: 12px; line-height: 1.45; }
+.ai-message__content ::v-deep ul,
+.ai-message__content ::v-deep ol { margin: 5px 0 7px; padding-left: 19px; }
+.ai-message__content ::v-deep li { margin: 2px 0; }
+.ai-message__content ::v-deep blockquote { margin: 7px 0; padding: 5px 8px; border-left: 3px solid var(--primary-color, #52c41a); color: #68758a; background: rgba(82, 196, 26, 0.06); }
+.ai-message__content ::v-deep hr { margin: 7px 0; border: 0; border-top: 1px solid rgba(127, 140, 160, 0.2); }
+.ai-message__content ::v-deep code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #d46b08;
+  background: rgba(250, 140, 22, 0.1);
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 10px;
+}
+.ai-message__content ::v-deep .qd-markdown-code {
+  margin: 6px 0;
+  padding: 8px;
+  overflow-x: auto;
+  border-radius: 6px;
+  color: #d9e2f1;
+  background: #1f2430;
+  font: 10px/1.5 'Fira Code', Consolas, monospace;
+  white-space: pre;
+}
+.ai-message__content ::v-deep .qd-markdown-code code { padding: 0; color: inherit; background: transparent; }
+.ai-message__content ::v-deep a { color: #1677ff; text-decoration: underline; }
+.ai-message__content ::v-deep .qd-markdown-table-wrap { max-width: 100%; margin: 7px 0; overflow-x: auto; }
+.ai-message__content ::v-deep .qd-markdown-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.ai-message__content ::v-deep .qd-markdown-table th,
+.ai-message__content ::v-deep .qd-markdown-table td { padding: 5px 6px; border: 1px solid rgba(127, 140, 160, 0.22); text-align: left; }
+.ai-message--user .ai-message__content {
+  border-radius: 10px 10px 3px 10px;
+  color: #24570f;
+  background: #f0f9eb;
+  border: 1px solid #d9f7be;
+}
+.ai-message--has-candidate .ai-message__content {
+  border-radius: 10px 10px 0 0;
+}
+.ai-message--thinking { opacity: 0.75; }
+.ai-message__badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: #1677ff;
+  background: #e6f4ff;
+  font-size: 8px;
+  font-weight: 500;
+}
+.ai-message__badge--candidate { color: #389e0d; background: #f6ffed; }
+.ai-message-candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid #d9f7be;
+  border-radius: 0 0 10px 3px;
+  background: #f6ffed;
+}
+.ai-message-candidate--warning { border-color: #ffd591; background: #fff7e6; }
+.ai-message-candidate__status { display: flex; align-items: center; gap: 6px; color: #389e0d; font-size: 9px; }
+.ai-message-candidate--warning .ai-message-candidate__status { color: #d46b08; }
+.ai-candidate-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.ai-candidate-actions .ant-btn { font-size: 10px; padding: 0 7px; }
+.ai-composer { margin-top: 8px; }
+.ai-composer ::v-deep .ai-prompt-input textarea {
+  min-height: 76px;
+  max-height: 150px;
+  padding: 8px 10px;
+  resize: vertical;
   line-height: 1.45;
 }
+.ai-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+.ai-composer-shortcut {
+  min-width: 0;
+  color: #9aa4b3;
+  font-size: 9px;
+  line-height: 1.4;
+}
+.ai-composer-send {
+  width: auto;
+  min-width: 116px;
+  height: 40px;
+  padding: 0 24px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 2px 7px rgba(82, 196, 26, 0.22);
+}
 .ai-helper-tip {
-  margin-bottom: 6px;
+  margin-top: 5px;
   font-size: 11px;
   color: #8c8c8c;
   line-height: 1.5;
+}
+.ai-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: #718096; font-size: 12px; }
+.ai-candidate-code-preview {
+  max-height: 62vh;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border-radius: 8px;
+  color: #d4d4d4;
+  background: #1e1e1e;
+  font: 12px/1.55 'Fira Code', 'Consolas', monospace;
+  white-space: pre;
 }
 .ai-helper-links {
   margin-top: 6px;
   font-size: 11px;
 }
 
-.code-quality-panel {
-  flex-shrink: 0;
-  margin-top: 0;
-  padding: 8px 10px 10px;
-  border-top: 1px solid #eee;
-}
-.code-quality-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.code-quality-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: #445066;
-}
-.code-quality-recheck { padding: 0 !important; height: auto !important; font-size: 11px !important; }
-.code-quality-spin { display: block; margin: 8px 0; }
-.code-quality-list {
-  margin: 0;
-  padding-left: 16px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #595959;
-}
-.code-quality-list li { margin-bottom: 4px; }
 .quality-hint--error { color: #cf1322; }
 .quality-hint--warn { color: #d46b08; }
 .quality-hint--info { color: var(--primary-color-active, #096dd9); }
 
 .ai-debug-card {
+  flex: 0 1 auto;
+  max-height: 38%;
   margin: 10px 10px 0;
   padding: 0;
   border: 1px solid #e6f4ff;
   border-radius: 10px;
   background: #fff;
-  overflow: hidden;
+  overflow: auto;
   font-size: 12px;
 }
 .ai-debug-card--success { border-color: #b7eb8f; }
@@ -4907,8 +5553,8 @@ body.dark .ide-signal-alert-modal-wrap {
   overflow: hidden;
   align-self: stretch;
   flex: 1 1 0;
-  height: calc(var(--ide-shell-height, calc(100vh - 64px)) - 8px);
-  max-height: calc(var(--ide-shell-height, calc(100vh - 64px)) - 8px);
+  height: 100%;
+  max-height: 100%;
 }
 .ide-workspace-pane--chart {
   display: flex;
@@ -4918,20 +5564,23 @@ body.dark .ide-signal-alert-modal-wrap {
   overflow: hidden;
 }
 
-.ide-quick-right {
-  width: 30%;
-  min-width: 280px;
-  max-width: 400px;
-  flex-shrink: 0;
+.ide-quick-bottom {
+  width: 100%;
+  flex: 0 0 clamp(320px, 34vh, 430px);
   display: flex;
   flex-direction: column;
-  border-left: 1px solid #e8e8e8;
+  border-top: 1px solid #e8e8e8;
   background: #f8fafc;
   overflow: hidden;
   min-height: 0;
-  align-self: stretch;
+  box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.08);
+  transition: flex-basis 180ms ease;
+}
+.ide-quick-bottom--collapsed {
+  flex-basis: 40px;
 }
 .ide-quick-panel-head {
+  width: 100%;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -4940,6 +5589,27 @@ body.dark .ide-signal-alert-modal-wrap {
   padding: 10px 12px;
   background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease;
+  &:hover {
+    background: linear-gradient(180deg, #f8fff3 0%, #edf8e8 100%);
+  }
+  &:focus-visible {
+    outline: 2px solid fade(@primary-color, 55%);
+    outline-offset: -2px;
+  }
+}
+.ide-quick-panel-head-copy {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
 }
 .ide-quick-panel-head-title {
   display: inline-flex;
@@ -4950,16 +5620,28 @@ body.dark .ide-signal-alert-modal-wrap {
   color: #0f172a;
   letter-spacing: 0.02em;
 }
+.ide-quick-panel-head-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
 .ide-quick-panel-head-icon {
   font-size: 16px;
   color: @primary-color;
 }
-.ide-quick-panel-close {
-  color: #64748b !important;
-  padding: 0 4px !important;
-  &:hover {
-    color: #0f172a !important;
-  }
+.ide-quick-panel-toggle {
+  width: 28px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  color: #64748b;
+  background: rgba(15, 23, 42, 0.05);
 }
 .ide-quick-panel-body {
   flex: 1;
@@ -4983,25 +5665,8 @@ body.dark .ide-signal-alert-modal-wrap {
     overflow-x: hidden;
   }
   ::v-deep .qt-embedded-split--cols {
-    flex-direction: column;
-    // Each form card already owns the same 14px outer margin as the symbol
-    // summary. Extra column padding made the trading form 24px narrower.
-    padding-left: 0;
-    padding-right: 0;
-  }
-  ::v-deep .qt-embedded-split--cols .qt-embedded-col-left,
-  ::v-deep .qt-embedded-split--cols .qt-embedded-col-right {
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    padding-left: 0;
-    padding-right: 0;
-    margin-left: 0;
-  }
-  ::v-deep .qt-embedded-split--cols .qt-embedded-col-right {
-    border-left: none;
-    border-top: 1px solid rgba(15, 23, 42, 0.08);
-    padding-top: 12px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
 }
 
@@ -5037,21 +5702,18 @@ body.dark .ide-signal-alert-modal-wrap {
 }
 .ide-chart-fs-row {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
   align-items: stretch;
 }
-.ide-quick-right--chart-fs {
-  flex: 0 0 auto;
-  width: 30%;
-  min-width: 260px;
-  max-width: 400px;
+.ide-quick-bottom--chart-fs {
+  width: 100%;
+  max-width: none;
   align-self: stretch;
-  border-left: 1px solid #e8e8e8;
-  overflow: visible;
+  overflow: hidden;
   position: relative;
   z-index: 2;
 }
@@ -5435,12 +6097,24 @@ body.dark .ide-signal-alert-modal-wrap {
     color: rgba(255, 255, 255, 0.65);
   }
   .ide-left { background: #181818; border-right-color: #303030; }
+  .ai-gen-panel { border-top-color: #303030; }
+  .ai-gen-header { color: rgba(255,255,255,0.82); &:hover { background: #202020; } }
+  .ai-gen-body { background: #171717; }
+  .ai-memory-badge { color: #95de64; background: rgba(82,196,26,0.12); border-color: rgba(82,196,26,0.28); }
+  .ai-conversation { background: #1f1f1f; border-color: #363636; }
+  .ai-conversation-empty strong { color: rgba(255,255,255,0.86); }
+  .ai-quick-prompts button { color: rgba(255,255,255,0.65); background: #262626; border-color: #434343; }
+  .ai-message__content { color: rgba(255,255,255,0.78); background: #2a2a2a; }
+  .ai-message--user .ai-message__content { color: #b7eb8f; background: rgba(82,196,26,0.11); border-color: rgba(82,196,26,0.28); }
+  .ai-message-candidate { background: rgba(82,196,26,0.09); border-color: rgba(82,196,26,0.34); }
+  .ai-message-candidate--warning { background: rgba(250,140,22,0.09); border-color: rgba(250,140,22,0.34); }
+  .ai-composer ::v-deep textarea { color: rgba(255,255,255,0.82); background: #222; border-color: #434343; }
   .ide-chart-fs-root {
     background: #141414;
     border-bottom-color: #303030;
   }
-  .ide-quick-right--chart-fs {
-    border-left-color: #303030;
+  .ide-quick-bottom--chart-fs {
+    border-top-color: #303030;
   }
   .chart-panel {
     background: #141414;
@@ -5458,35 +6132,30 @@ body.dark .ide-signal-alert-modal-wrap {
       color: rgba(255, 255, 255, 0.45);
     }
   }
-  .chart-panel-qt-btn.ant-btn-default {
-    background: #262626;
-    border-color: #434343;
-    color: rgba(255, 255, 255, 0.85);
-    box-shadow: none;
-    &:hover {
-      border-color: var(--primary-color, #1890ff);
-      color: var(--primary-color, #1890ff);
-    }
-  }
-  .ide-quick-right {
+  .ide-quick-bottom {
     background: #141414;
-    border-left-color: #303030;
+    border-top-color: #303030;
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.32);
   }
   .ide-quick-panel-head {
     background: linear-gradient(180deg, #1f1f1f 0%, #1a1a1a 100%);
     border-bottom-color: #303030;
+    &:hover {
+      background: linear-gradient(180deg, #252b22 0%, #1d221b 100%);
+    }
   }
   .ide-quick-panel-head-title {
     color: rgba(255, 255, 255, 0.92);
   }
+  .ide-quick-panel-head-meta {
+    color: rgba(255, 255, 255, 0.45);
+  }
   .ide-quick-panel-head-icon {
     color: var(--primary-color, #1890ff);
   }
-  .ide-quick-panel-close {
-    color: rgba(255, 255, 255, 0.45) !important;
-    &:hover {
-      color: rgba(255, 255, 255, 0.88) !important;
-    }
+  .ide-quick-panel-toggle {
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.06);
   }
   .ide-quick-panel-body {
     ::v-deep .qt-embedded-split--cols .qt-embedded-col-right {
@@ -5588,8 +6257,17 @@ body.dark .ide-signal-alert-modal-wrap {
     background: #1a1a1a;
     border-bottom-color: #303030;
     color: rgba(255, 255, 255, 0.45);
-    > .anticon { color: rgba(255, 255, 255, 0.3); }
   }
+  .ide-guide-copy > .anticon { color: rgba(255, 255, 255, 0.3); }
+  .code-quality-top-button {
+    border-color: #434343 !important;
+    color: rgba(255,255,255,0.72) !important;
+    background: #262626 !important;
+  }
+  .code-quality-top-status--success { color: #95de64; border-color: rgba(82,196,26,0.4); background: rgba(82,196,26,0.1); }
+  .code-quality-top-status--error { color: #ff7875; border-color: rgba(255,77,79,0.4); background: rgba(255,77,79,0.1); }
+  .code-quality-top-status--warn { color: #ffc069; border-color: rgba(250,140,22,0.4); background: rgba(250,140,22,0.1); }
+  .code-quality-top-status--info { color: #69c0ff; border-color: rgba(24,144,255,0.4); background: rgba(24,144,255,0.1); }
   .ide-guide-link {
     color: var(--primary-color, #1890ff);
     background: var(--primary-color-soft, rgba(24, 144, 255, 0.1));
@@ -5601,9 +6279,9 @@ body.dark .ide-signal-alert-modal-wrap {
     }
   }
   .ai-helper-tip, .publish-form .publish-hint { color: rgba(255,255,255,0.45); }
-  .code-quality-panel { border-top-color: #303030; }
-  .code-quality-title { color: rgba(255,255,255,0.78); }
-  .code-quality-list { color: rgba(255,255,255,0.55); }
+  .code-ai-resizer { border-color: #303030; background: #1d1d1d; }
+  .code-ai-resizer__grip { background: #595959; box-shadow: 0 -3px 0 rgba(89,89,89,0.55), 0 3px 0 rgba(89,89,89,0.55); }
+  .ai-workspace-section { background: #171717; }
   .ai-debug-card {
     border-color: #303030; background: #1f1f1f;
   }

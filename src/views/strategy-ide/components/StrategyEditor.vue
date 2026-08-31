@@ -3,7 +3,7 @@
     <div v-if="$slots.toolbar" class="editor-top-toolbar">
       <slot name="toolbar"></slot>
     </div>
-    <div class="editor-layout">
+    <div class="editor-layout" :class="{ 'editor-layout--split': isSplitSideMode }">
       <div class="code-col">
         <div class="code-section">
           <div class="section-header">
@@ -19,6 +19,14 @@
               </a-tag>
             </div>
             <div class="section-actions">
+              <span
+                v-if="lastVerificationState"
+                class="verification-status"
+                :class="`verification-status--${lastVerificationState}`"
+              >
+                <a-icon :type="lastVerificationState === 'passed' ? 'check-circle' : 'exclamation-circle'" />
+                {{ lastVerificationState === 'passed' ? $t('trading-assistant.editor.verifySuccess') : $t('trading-assistant.editor.verifyFailed') }}
+              </span>
               <a-button
                 type="link"
                 size="small"
@@ -30,6 +38,15 @@
                 <a-icon type="check-circle" />
                 {{ $t('trading-assistant.editor.verify') }}
               </a-button>
+              <a
+                class="developer-guide-link"
+                href="https://www.quantdinger.com/doc/trading/STRATEGY_DEV_GUIDE.html"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <a-icon type="book" />
+                {{ $t('dashboard.indicator.editor.guide') }}
+              </a>
             </div>
           </div>
           <div v-if="hiddenSource" class="code-hidden-mask">
@@ -39,100 +56,120 @@
           </div>
           <div v-else ref="editorContainer" class="code-editor-container"></div>
         </div>
+        <div v-if="!isSplitSideMode && $slots['ai-workspace']" class="strategy-ai-workspace-host">
+          <slot name="ai-workspace"></slot>
+        </div>
       </div>
 
       <div class="side-col">
-        <div v-if="isSplitSideMode" class="side-tabs side-tabs--split">
-          <div class="split-param-pane">
-            <div class="params-panel">
-              <div class="panel-intro">
-                <div class="panel-intro__title">
-                  {{ activeParamTemplateTitle }}
-                </div>
-                <div class="panel-intro__desc">
-                  {{ activeParamTemplateDesc }}
-                </div>
-              </div>
-              <template v-if="activeParamTemplate">
-                <div class="param-list">
-                  <div v-for="param in activeParamTemplate.params" :key="param.name" class="param-item">
-                    <div class="param-item__label-row">
-                      <span class="param-item__label">{{ getParamLabel(param) }}</span>
-                      <span class="param-item__type">{{ getParamTypeLabel(param.type) }}</span>
+        <a-tabs
+          v-if="isSplitSideMode"
+          v-model="activeSideTab"
+          size="small"
+          class="side-tabs side-tabs--split"
+          :animated="false"
+        >
+          <a-tab-pane key="params" :tab="$t('trading-assistant.editor.paramsTab')" :force-render="true">
+            <div class="split-param-pane">
+              <div class="params-panel">
+                <div class="params-toolbar">
+                  <div class="params-toolbar__summary">
+                    <div class="panel-intro__title">
+                      {{ activeParamTemplateTitle }}
+                      <a-tag v-if="activeParamTemplate" color="green" class="params-count-tag">
+                        {{ (activeParamTemplate.params || []).length }} {{ $t('trading-assistant.editor.paramsTab') }}
+                      </a-tag>
                     </div>
-                    <div v-if="getParamDescription(param)" class="param-item__desc">{{ getParamDescription(param) }}</div>
-                    <a-input-number
-                      v-if="param.type === 'percent'"
-                      :value="templateParamValues[param.name]"
-                      :min="param.min"
-                      :max="param.max"
-                      :step="param.step || 1"
-                      :precision="getParamPrecision(param)"
-                      :formatter="formatPercentInput"
-                      :parser="parsePercentInput"
-                      style="width: 100%"
-                      @change="handleNumericParamChange(param, $event)"
-                    />
-                    <a-input-number
-                      v-else-if="param.type === 'number' || param.type === 'integer'"
-                      :value="templateParamValues[param.name]"
-                      :min="param.min"
-                      :max="param.max"
-                      :step="param.step || 1"
-                      :precision="param.type === 'integer' ? 0 : getParamPrecision(param)"
-                      style="width: 100%"
-                      @change="handleNumericParamChange(param, $event)"
-                    />
-                    <a-select
-                      v-else-if="param.type === 'select'"
-                      :value="templateParamValues[param.name]"
-                      style="width: 100%"
-                      @change="handleSelectParamChange(param, $event)"
+                    <div class="panel-intro__desc">
+                      {{ activeParamTemplateDesc }}
+                    </div>
+                  </div>
+                  <div v-if="activeParamTemplate" class="params-actions">
+                    <a-button size="small" @click="resetTemplateParams">
+                      {{ $t('trading-assistant.editor.resetTemplateParams') }}
+                    </a-button>
+                    <a-button
+                      v-if="!hiddenSource"
+                      size="small"
+                      type="primary"
+                      @click="applySelectedTemplateToCode"
+                      :disabled="!templateDirty || readonly"
                     >
-                      <a-select-option
-                        v-for="option in (param.options || [])"
-                        :key="option.value"
-                        :value="option.value">
-                        {{ getOptionLabel(option) }}
-                      </a-select-option>
-                    </a-select>
-                    <div v-else-if="param.type === 'boolean'" class="param-item__switch">
-                      <a-switch
-                        :checked="!!templateParamValues[param.name]"
-                        @change="handleBooleanParamChange(param, $event)"
-                      />
-                      <span>{{ templateParamValues[param.name] ? $t('common.yes') : $t('common.no') }}</span>
-                    </div>
-                    <a-input
-                      v-else
-                      :value="templateParamValues[param.name]"
-                      @input="handleTextParamChange(param, $event.target.value)"
-                    />
+                      {{ $t('trading-assistant.editor.applyTemplateParams') }}
+                    </a-button>
+                    <a-tag v-else color="blue" class="params-live-tag">
+                      {{ $t('trading-assistant.editor.hiddenParamsLive') }}
+                    </a-tag>
                   </div>
                 </div>
-                <div class="params-actions">
-                  <a-button @click="resetTemplateParams">
-                    {{ $t('trading-assistant.editor.resetTemplateParams') }}
-                  </a-button>
-                  <a-button
-                    v-if="!hiddenSource"
-                    type="primary"
-                    @click="applySelectedTemplateToCode"
-                    :disabled="!templateDirty || readonly"
-                  >
-                    {{ $t('trading-assistant.editor.applyTemplateParams') }}
-                  </a-button>
-                  <a-tag v-else color="blue" class="params-live-tag">
-                    {{ $t('trading-assistant.editor.hiddenParamsLive') }}
-                  </a-tag>
+                <template v-if="activeParamTemplate">
+                  <div class="param-list">
+                    <div v-for="param in activeParamTemplate.params" :key="param.name" class="param-item">
+                      <div class="param-item__label-row">
+                        <span class="param-item__label">{{ getParamLabel(param) }}</span>
+                        <span class="param-item__type">{{ getParamTypeLabel(param.type) }}</span>
+                      </div>
+                      <div v-if="getParamDescription(param)" class="param-item__desc">{{ getParamDescription(param) }}</div>
+                      <a-input-number
+                        v-if="param.type === 'percent'"
+                        :value="templateParamValues[param.name]"
+                        :min="param.min"
+                        :max="param.max"
+                        :step="param.step || 1"
+                        :precision="getParamPrecision(param)"
+                        :formatter="formatPercentInput"
+                        :parser="parsePercentInput"
+                        style="width: 100%"
+                        @change="handleNumericParamChange(param, $event)"
+                      />
+                      <a-input-number
+                        v-else-if="param.type === 'number' || param.type === 'integer'"
+                        :value="templateParamValues[param.name]"
+                        :min="param.min"
+                        :max="param.max"
+                        :step="param.step || 1"
+                        :precision="param.type === 'integer' ? 0 : getParamPrecision(param)"
+                        style="width: 100%"
+                        @change="handleNumericParamChange(param, $event)"
+                      />
+                      <a-select
+                        v-else-if="param.type === 'select'"
+                        :value="templateParamValues[param.name]"
+                        style="width: 100%"
+                        @change="handleSelectParamChange(param, $event)"
+                      >
+                        <a-select-option
+                          v-for="option in (param.options || [])"
+                          :key="option.value"
+                          :value="option.value">
+                          {{ getOptionLabel(option) }}
+                        </a-select-option>
+                      </a-select>
+                      <div v-else-if="param.type === 'boolean'" class="param-item__switch">
+                        <a-switch
+                          :checked="!!templateParamValues[param.name]"
+                          @change="handleBooleanParamChange(param, $event)"
+                        />
+                        <span>{{ templateParamValues[param.name] ? $t('common.yes') : $t('common.no') }}</span>
+                      </div>
+                      <a-input
+                        v-else
+                        :value="templateParamValues[param.name]"
+                        @input="handleTextParamChange(param, $event.target.value)"
+                      />
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="params-empty-guide">
+                  <a-empty :description="$t('trading-assistant.editor.paramsEmpty')" />
                 </div>
-              </template>
+              </div>
             </div>
-            <div v-if="!activeParamTemplate" class="params-empty-guide">
-              <a-empty :description="$t('trading-assistant.editor.paramsEmpty')" />
-            </div>
-          </div>
-        </div>
+          </a-tab-pane>
+          <a-tab-pane v-if="$slots['strategy-contract']" key="contract" :tab="$t('strategyIde.aiWorkspace.contractTab')" :force-render="true">
+            <slot name="strategy-contract"></slot>
+          </a-tab-pane>
+        </a-tabs>
         <a-tabs
           v-else
           v-model="activeTab"
@@ -284,6 +321,12 @@
 
         </a-tabs>
       </div>
+      <div
+        v-if="isSplitSideMode && $slots['ai-workspace']"
+        class="strategy-ai-workspace-host strategy-ai-workspace-host--primary"
+      >
+        <slot name="ai-workspace"></slot>
+      </div>
     </div>
     <a-modal
       :visible="showTemplatePicker"
@@ -398,6 +441,8 @@ export default {
   data () {
     return {
       activeTab: 'templates',
+      activeSideTab: 'params',
+      lastVerificationState: '',
       showTemplatePicker: false,
       verifying: false,
       editor: null,
@@ -481,6 +526,7 @@ export default {
   },
   watch: {
     value (newVal) {
+      this.lastVerificationState = ''
       if (this.hiddenSource) return
       if (this.editor && this.editor.getValue() !== newVal) {
         this.editor.setValue(newVal || '')
@@ -680,18 +726,20 @@ Describe the strategy logic, supported markets, entry/exit rules, and risk contr
 """
 
 def initialize(context):
-    context.set_universe(["USStock:SPY"])
+    g.symbol = "USStock:SPY"
+    context.set_universe([g.symbol])
     context.subscribe(frequency="1d")
+    context.set_metadata(direction_mode="long_only")
     context.set_warmup(55)
     g.period = 50
 
 def handle_data(context, data):
-    bars = get_history(g.period + 2, "1d", "close", "USStock:SPY")
+    bars = get_history(g.period + 2, "1d", "close", g.symbol)
     if len(bars) < g.period:
         return
     average = float(bars["close"].tail(g.period).mean())
     target = 1.0 if float(bars["close"].iloc[-1]) > average else 0.0
-    order_target_percent("USStock:SPY", target, reason="single_ma_regime")
+    order_target_percent(g.symbol, target, reason="single_ma_regime")
 `
     },
 
@@ -1035,12 +1083,15 @@ def handle_data(context, data):
           data: { code }
         })
         if (res && res.code === 1 && res.data && res.data.valid) {
+          this.lastVerificationState = 'passed'
           message.success(this.$t('trading-assistant.editor.verifySuccess'))
-          this.$emit('verified')
+          this.$emit('verified', res.data)
         } else {
+          this.lastVerificationState = 'failed'
           message.error((res && res.data && res.data.error) || (res && res.msg) || this.$t('trading-assistant.editor.verifyFailed'))
         }
       } catch (e) {
+        this.lastVerificationState = 'failed'
         message.error(this.$t('trading-assistant.editor.verifyFailed') + ': ' + (e.message || ''))
       } finally {
         this.verifying = false
@@ -1065,6 +1116,14 @@ def handle_data(context, data):
   min-width: 0;
 }
 
+.editor-layout--split {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 32%);
+  grid-template-rows: minmax(0, 1fr) 248px;
+  display: grid;
+  gap: 10px;
+  height: 100%;
+}
+
 .editor-top-toolbar {
   display: flex;
   align-items: center;
@@ -1078,7 +1137,34 @@ def handle_data(context, data):
   display: flex;
   flex-direction: column;
   flex: 1 1 62%;
+  min-height: 0;
   min-width: 0;
+}
+
+.strategy-ai-workspace-host {
+  flex: 0 0 auto;
+  min-height: 0;
+  margin-top: 10px;
+}
+
+.strategy-ai-workspace-host--primary {
+  grid-column-start: 2;
+  grid-column-end: 3;
+  grid-row-start: 1;
+  grid-row-end: 3;
+  height: 100%;
+  margin-top: 0;
+  min-width: 0;
+}
+
+.editor-layout--split .code-col {
+  grid-column-start: 1;
+  grid-column-end: 2;
+  grid-row-start: 1;
+  grid-row-end: 2;
+  width: 100%;
+  flex: none;
+  height: 100%;
 }
 
 .side-col {
@@ -1089,9 +1175,38 @@ def handle_data(context, data):
   max-width: 380px;
 }
 
+.editor-layout--split .side-col {
+  grid-column-start: 1;
+  grid-column-end: 2;
+  grid-row-start: 2;
+  grid-row-end: 3;
+  width: 100%;
+  flex: none;
+  height: 248px;
+  min-width: 0;
+  max-width: none;
+}
+
 @media (max-width: 768px) {
   .editor-layout {
     flex-direction: column;
+  }
+
+  .editor-layout--split {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(320px, auto) minmax(320px, auto) minmax(220px, auto);
+    display: grid;
+    height: auto;
+  }
+
+  .strategy-ai-workspace-host--primary,
+  .editor-layout--split .code-col,
+  .editor-layout--split .side-col {
+    grid-column-start: 1;
+    grid-column-end: 2;
+    grid-row-start: auto;
+    grid-row-end: auto;
+    height: auto;
   }
 
   .code-col,
@@ -1153,6 +1268,47 @@ def handle_data(context, data):
 .verify-btn {
   color: #52c41a;
   font-weight: 600;
+}
+
+.developer-guide-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 4px;
+  color: #52c41a;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+
+  &:hover,
+  &:focus {
+    color: #389e0d;
+  }
+}
+
+.verification-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 20px;
+}
+
+.verification-status--passed {
+  border-color: #b7eb8f;
+  color: #389e0d;
+  background: #f6ffed;
+}
+
+.verification-status--failed {
+  border-color: #ffccc7;
+  color: #cf1322;
+  background: #fff2f0;
 }
 
 .code-editor-container {
@@ -1276,46 +1432,81 @@ def handle_data(context, data):
 }
 
 .side-tabs--split {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background: #fff;
+
+  ::v-deep .ant-tabs-content {
+    min-height: 0;
+    padding: 0;
+  }
+
+  ::v-deep .ant-tabs-tabpane-active {
+    height: 100%;
+  }
 
   .split-param-pane {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 12px;
+    padding: 0;
     overflow: hidden;
-    border: 1px solid #e8e8e8;
-    border-radius: 8px;
+    border: 0;
+    border-radius: 0;
     background: #fff;
   }
 
   .params-panel {
+    height: 100%;
     min-height: 0;
     display: flex;
     flex-direction: column;
   }
 
-  .panel-intro {
-    padding: 10px 12px;
+  .params-toolbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    background: #fafafa;
+  }
+
+  .params-toolbar__summary {
+    min-width: 0;
+  }
+
+  .params-toolbar .panel-intro__title {
+    font-size: 12px;
+  }
+
+  .params-toolbar .panel-intro__desc {
+    max-width: 680px;
+    margin-top: 2px;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .param-list {
     flex: 1 1 auto;
     min-height: 0;
-    overflow-x: hidden;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    align-content: start;
     overflow-y: auto;
-    gap: 10px;
-    padding-right: 2px;
+    gap: 8px;
+    padding: 10px 12px 12px;
   }
 
   .param-item {
-    padding: 10px 12px;
+    min-width: 0;
+    padding: 8px 10px;
   }
 
   .params-empty-guide {
@@ -1326,12 +1517,20 @@ def handle_data(context, data):
 
   .params-actions {
     flex: 0 0 auto;
-    margin: 10px -12px -12px;
-    padding: 10px 12px;
-    border-top: 1px solid #f0f0f0;
-    background: #fff;
-    box-shadow: 0 -8px 16px rgba(0, 0, 0, 0.04);
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    border-top: 0;
+    border-left: 0;
+    background: transparent;
+    box-shadow: none;
   }
+}
+
+.params-count-tag {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 400;
 }
 
 .params-live-tag {
@@ -1676,9 +1875,13 @@ def handle_data(context, data):
 
 .param-item__desc {
   margin-bottom: 8px;
+  display: -webkit-box;
+  overflow: hidden;
   font-size: 12px;
   line-height: 1.5;
   color: #8c8c8c;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .param-item__switch {
@@ -1749,18 +1952,34 @@ def handle_data(context, data):
   }
 
   .side-tabs--split {
-    border-color: transparent;
+    border-color: rgba(255, 255, 255, 0.1);
+    background: #181818;
 
     .split-param-pane {
       background: #181818;
       border-color: rgba(255, 255, 255, 0.1);
     }
 
-    .params-actions {
-      border-top-color: rgba(255, 255, 255, 0.08);
-      background: #181818;
-      box-shadow: 0 -8px 16px rgba(0, 0, 0, 0.24);
+    .params-toolbar {
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+      background: #1c1c1c;
     }
+
+    .params-actions {
+      background: transparent;
+    }
+  }
+
+  .verification-status--passed {
+    border-color: rgba(82, 196, 26, 0.35);
+    color: #95de64;
+    background: rgba(82, 196, 26, 0.12);
+  }
+
+  .verification-status--failed {
+    border-color: rgba(255, 77, 79, 0.34);
+    color: #ff7875;
+    background: rgba(255, 77, 79, 0.12);
   }
 
   .panel-intro {
@@ -1902,6 +2121,15 @@ def handle_data(context, data):
 
   .verify-btn {
     color: #52c41a;
+  }
+
+  .developer-guide-link {
+    color: #73d13d;
+
+    &:hover,
+    &:focus {
+      color: #95de64;
+    }
   }
 
   .code-editor-container {
